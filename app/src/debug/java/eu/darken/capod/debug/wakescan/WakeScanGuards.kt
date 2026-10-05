@@ -51,3 +51,17 @@ class Throttle(
         return true
     }
 }
+
+/** Remembers the last attempt per key. Not thread safe, callers synchronise. */
+class AttemptTracker(
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
+) {
+    private val last = HashMap<String, Long>()
+
+    /** Null if there was no attempt for [key] yet. */
+    fun millisSinceLastAttempt(key: String): Long? = last[key]?.let { clock() - it }
+
+    fun markAttempt(key: String) {
+        last[key] = clock()
+    }
+}

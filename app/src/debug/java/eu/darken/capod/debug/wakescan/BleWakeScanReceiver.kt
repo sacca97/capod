@@ -13,11 +13,13 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
+import eu.darken.capod.common.bluetooth.BluetoothManager2
+import eu.darken.capod.common.bluetooth.NudgeAvailability
+import eu.darken.capod.common.bluetooth.NudgeCapabilityStore
 import eu.darken.capod.common.bluetooth.redactedForLogs
 import eu.darken.capod.common.hasApiLevel
 import eu.darken.capod.common.notifications.PendingIntentCompat
 import eu.darken.capod.common.permissions.Permission
-import eu.darken.capod.common.startServiceCompat
 import eu.darken.capod.monitor.core.worker.MonitorService
 import eu.darken.capod.pods.core.apple.ble.protocol.RPAChecker
 import eu.darken.capod.profiles.core.AppleDeviceProfile
@@ -27,13 +29,14 @@ import eu.darken.capod.profiles.core.currentProfiles
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 /**
- * Debug-only prototype: can a PendingIntent BLE scan wake a killed process, and may that wake
- * start the monitor foreground service? Logging only, tag [TAG]. Not wired into the app.
+ * Debug-only prototype: can a PendingIntent BLE scan wake a killed process on a lid-open advert and auto connect
+ * the user's pods, without starting the monitor foreground service? Logging only, tag [TAG]. Not wired into the app.
  *
  * Arm/disarm via `adb shell am broadcast -a eu.darken.capod.debug.ARM_WAKE_SCAN -n <component>`.
  */
@@ -42,13 +45,16 @@ class BleWakeScanReceiver : BroadcastReceiver() {
 
     @Inject lateinit var profilesRepo: DeviceProfilesRepo
     @Inject lateinit var rpaChecker: RPAChecker
+    @Inject lateinit var bluetoothManager: BluetoothManager2
+    @Inject lateinit var nudgeCapabilityStore: NudgeCapabilityStore
 
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
         // Profiles and the IRK check suspend, so work off the main thread. finish() always runs in the finally.
         scope.launch {
             try {
-                handle(context, intent)
+                val completed = withTimeoutOrNull(HANDLE_TIMEOUT_MS) { handle(context, intent) }
+                if (completed == null) Log.w(TAG, "handle timed out after ${HANDLE_TIMEOUT_MS}ms")
             } catch (e: Exception) {
                 Log.w(TAG, "onReceive failed: ${e.javaClass.name}: ${e.message}")
             } finally {
@@ -97,7 +103,7 @@ class BleWakeScanReceiver : BroadcastReceiver() {
         val rc = scanner.startScan(filters, settings, createPendingIntent(context))
         Log.w(
             TAG,
-            "armed rc=$rc (0 = success) filters=${filters.size} fallbackTypeOnly=${specs.fallback} " +
+            "armed rc=$rc (0 = success) filters=${filters.size} lidFilter=true fallbackTypeOnly=${specs.fallback} " +
                 "models=${profiles.map { it.model.name }.distinct()}"
         )
     }
@@ -127,8 +133,8 @@ class BleWakeScanReceiver : BroadcastReceiver() {
         )
         results?.forEach { result ->
             val apple = result.scanRecord?.getManufacturerSpecificData(APPLE_COMPANY_ID)
-            val hex = apple?.take(8)?.joinToString(" ") { "%02X".format(it) } ?: "none"
-            Log.w(TAG, "result addr=${result.device.address.redactedForLogs()} rssi=${result.rssi} apple8=[$hex]")
+            val hex = apple?.take(11)?.joinToString(" ") { "%02X".format(it) } ?: "none"
+            Log.w(TAG, "result addr=${result.device.address.redactedForLogs()} rssi=${result.rssi} apple11=[$hex]")
         }
 
         if (results.isNullOrEmpty()) {
@@ -147,17 +153,48 @@ class BleWakeScanReceiver : BroadcastReceiver() {
             Log.w(TAG, "WAKESCAN decision=IGNORE matched=none")
             return
         }
-        Log.w(TAG, "WAKESCAN decision=START matched=${matched.label}")
+        connectIfWanted(matched)
+    }
 
-        if (!synchronized(startThrottle) { startThrottle.tryAcquire() }) {
-            Log.w(TAG, "WAKESCAN fgs-start throttled")
-            return
+    private suspend fun connectIfWanted(profile: AppleDeviceProfile) {
+        val address = profile.address
+        val bonded = address?.let { addr ->
+            runCatching { bluetoothManager.bondedDevices().first().firstOrNull { it.address == addr } }.getOrNull()
         }
-        try {
-            context.startServiceCompat(MonitorService.intent(context, false))
-            Log.w(TAG, "fgs-start OK")
-        } catch (e: Exception) {
-            Log.w(TAG, "fgs-start FAILED ${e.javaClass.name}: ${e.message}")
+        val isConnected = bonded != null && runCatching {
+            bluetoothManager.connectedDevices.first().any { it.address == bonded.address }
+        }.getOrDefault(false)
+        val decision = WakeScanDecision.decide(
+            autoConnectEnabled = profile.autoConnect,
+            hasAddress = bonded != null,
+            isAlreadyConnected = isConnected,
+            millisSinceLastAttempt = synchronized(attempts) { attempts.millisSinceLastAttempt(profile.id) },
+        )
+        when (decision) {
+            is WakeScanDecision.Result.Skip -> {
+                val reason = when (decision.reason) {
+                    WakeScanDecision.Reason.AUTO_CONNECT_OFF -> "autoConnectOff"
+                    WakeScanDecision.Reason.NO_ADDRESS -> "noAddress"
+                    WakeScanDecision.Reason.ALREADY_CONNECTED -> "alreadyConnected"
+                    WakeScanDecision.Reason.THROTTLED -> "throttled"
+                }
+                Log.w(TAG, "WAKESCAN decision=SKIP reason=$reason matched=${profile.label}")
+            }
+            WakeScanDecision.Result.Connect -> {
+                Log.w(TAG, "WAKESCAN decision=CONNECT matched=${profile.label}")
+                if (nudgeCapabilityStore.availability.value == NudgeAvailability.BROKEN) {
+                    Log.w(TAG, "WAKESCAN connect-attempt skipped: nudgeConnection known broken")
+                    return
+                }
+                synchronized(attempts) { attempts.markAttempt(profile.id) }
+                try {
+                    val result = bluetoothManager.nudgeConnection(bonded!!)
+                    nudgeCapabilityStore.record(result)
+                    Log.w(TAG, "WAKESCAN connect-attempt result=$result")
+                } catch (e: Exception) {
+                    Log.w(TAG, "WAKESCAN connect-attempt threw ${e.javaClass.name}: ${e.message}")
+                }
+            }
         }
     }
 
@@ -201,12 +238,13 @@ class BleWakeScanReceiver : BroadcastReceiver() {
         private const val REQUEST_CODE = 271
         private const val APPLE_COMPANY_ID = 0x004C
         private const val PROFILES_TIMEOUT_MS = 5_000L
+        private const val HANDLE_TIMEOUT_MS = 8_000L
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        // Per process: addresses checked in the last 10 s (with their outcome) and the service start throttle.
+        // Per process: addresses checked in the last 10 s (with their outcome) and the last connect attempt per profile.
         private val checkedAddresses = RecentCache<AppleDeviceProfile?>()
-        private val startThrottle = Throttle()
+        private val attempts = AttemptTracker()
 
         // Initialised at class load, i.e. in the delivery that created the process if it was the first broadcast.
         @Volatile private var firstDelivery = true

@@ -13,16 +13,29 @@ class WakeScanFilterTest : BaseTest() {
 
     private fun WakeScanFilter.Spec.hex(array: ByteArray) = array.joinToString(" ") { "%02X".format(it) }
 
+    private fun hexes(spec: WakeScanFilter.Spec) = spec.hex(spec.data) to spec.hex(spec.mask)
+
     @Test
-    fun `one filter per distinct model code`() {
-        val result = WakeScanFilter.specs(
-            listOf(profile(PodModel.AIRPODS_PRO2), profile(PodModel.AIRPODS_PRO2), profile(PodModel.AIRPODS_GEN3))
-        )
+    fun `case model gets two lid open filters`() {
+        val result = WakeScanFilter.specs(listOf(profile(PodModel.AIRPODS_PRO3), profile(PodModel.AIRPODS_PRO3)))
         result.fallback shouldBe false
-        result.specs shouldHaveSize 2
-        val pro2 = result.specs.first()
-        pro2.hex(pro2.data) shouldBe "07 00 00 14 20"
-        pro2.hex(pro2.mask) shouldBe "FF 00 00 FF FF"
+        result.specs.map { hexes(it) } shouldBe listOf(
+            "07 00 00 27 20 40 00 00 00" to "FF 00 00 FF FF 40 00 00 08",
+            "07 00 00 27 20 04 00 00 00" to "FF 00 00 FF FF 04 00 00 08",
+        )
+    }
+
+    @Test
+    fun `distinct case models get two filters each`() {
+        val result = WakeScanFilter.specs(listOf(profile(PodModel.AIRPODS_PRO2), profile(PodModel.AIRPODS_GEN3)))
+        result.specs shouldHaveSize 4
+    }
+
+    @Test
+    fun `caseless model keeps the model only filter`() {
+        val spec = WakeScanFilter.specs(listOf(profile(PodModel.AIRPODS_MAX))).specs.single()
+        spec.hex(spec.data) shouldBe "07 00 00 0A 20"
+        spec.hex(spec.mask) shouldBe "FF 00 00 FF FF"
     }
 
     @Test

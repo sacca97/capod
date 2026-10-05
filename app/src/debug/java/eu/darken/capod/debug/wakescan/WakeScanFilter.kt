@@ -8,13 +8,24 @@ import eu.darken.capod.profiles.core.DeviceProfile
 /**
  * Debug-only wake scan prototype: builds proximity pairing filters narrowed to the models of the configured profiles.
  *
- * Advert layout after the company id: `07 <len> 01 <model hi> <model lo> ...`. Type and model bytes must match,
- * length (varies on clones) and prefix are ignored.
+ * Advert layout after the company id: `07 <len> 01 <model hi> <model lo> <status> <pods batt> <flags|case batt>
+ * <lid> <color> <suffix> <16 encrypted>`. Type and model bytes must match, length (varies on clones) and prefix are
+ * ignored.
+ *
+ * Models with a case additionally only match lid-OPEN adverts: status bit 6 (this pod in case) or bit 2 (both pods in
+ * case) must be set, because only then the lid bit is trustworthy, and lid bit 3 (offset 8) must be clear (0 = open).
+ * Same semantics as `DualApplePods.caseLidState`. Models without a case keep the model-only filter.
  */
 object WakeScanFilter {
     // Type, length, prefix, model hi, model lo. Data and mask must have the same length.
     private const val DATA_LENGTH = 5
     private const val TYPE_PROXIMITY_PAIRING = 0x07
+
+    // Covers offsets 0..8 so status (5) and lid (8) can be matched.
+    private const val LID_DATA_LENGTH = 9
+    private const val STATUS_THIS_POD_IN_CASE = 0x40
+    private const val STATUS_BOTH_PODS_IN_CASE = 0x04
+    private const val LID_CLOSED_BIT = 0x08
 
     /** Raw manufacturer data and mask of one filter. Pure, so it can be unit tested without the framework. */
     data class Spec(val data: ByteArray, val mask: ByteArray) {
@@ -44,7 +55,25 @@ object WakeScanFilter {
         },
     )
 
-    /** One spec per distinct model code. A profile without a code (e.g. UNKNOWN) degrades to the type-only filter. */
+    /** Model code, status bit [statusBit] set and lid bit clear: a lid-open advert from a pod broadcasting in the case. */
+    fun forCaseModelLidOpen(code: Int, codeMask: Int, statusBit: Int): Spec {
+        val base = forModel(code, codeMask)
+        return Spec(
+            data = base.data.copyOf(LID_DATA_LENGTH).apply {
+                this[5] = statusBit.toByte()
+                this[8] = 0x00
+            },
+            mask = base.mask.copyOf(LID_DATA_LENGTH).apply {
+                this[5] = statusBit.toByte()
+                this[8] = LID_CLOSED_BIT.toByte()
+            },
+        )
+    }
+
+    /**
+     * Two specs per distinct case model code (OR'd), one model-only spec per distinct caseless model code.
+     * A profile without a code (e.g. UNKNOWN) degrades to the type-only filter.
+     */
     fun specs(profiles: List<DeviceProfile>): Specs {
         val specs = LinkedHashSet<Spec>()
         var fallback = false
@@ -53,7 +82,12 @@ object WakeScanFilter {
             if (code == null) {
                 fallback = true
             } else {
-                specs.add(forModel(code.code.toInt(), code.mask.toInt()))
+                if (profile.model.features.hasCase) {
+                    specs.add(forCaseModelLidOpen(code.code.toInt(), code.mask.toInt(), STATUS_THIS_POD_IN_CASE))
+                    specs.add(forCaseModelLidOpen(code.code.toInt(), code.mask.toInt(), STATUS_BOTH_PODS_IN_CASE))
+                } else {
+                    specs.add(forModel(code.code.toInt(), code.mask.toInt()))
+                }
             }
         }
         if (fallback) specs.add(typeOnly())
