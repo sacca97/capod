@@ -6,6 +6,7 @@ import eu.darken.capod.common.bluetooth.BluetoothDevice2
 import eu.darken.capod.common.bluetooth.BluetoothManager2
 import eu.darken.capod.common.bluetooth.ScannerMode
 import eu.darken.capod.profiles.core.AppleDeviceProfile
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
 import eu.darken.capod.profiles.core.DeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import eu.darken.capod.pods.core.apple.PodModel
@@ -57,6 +58,54 @@ class BleScanModeControllerTest : BaseTest() {
             bondedAddresses = setOf(ADDRESS),
             connectedAddresses = setOf(ADDRESS),
         ) shouldBe ScannerMode.LOW_LATENCY
+    }
+
+    @Test
+    fun `connected profile with live AAP session uses low power in background`() {
+        resolveScannerMode(
+            overrideMode = null,
+            isForeground = false,
+            profileAddresses = setOf(ADDRESS),
+            bondedAddresses = setOf(ADDRESS),
+            connectedAddresses = setOf(ADDRESS),
+            aapReadyAddresses = setOf(ADDRESS),
+        ) shouldBe ScannerMode.LOW_POWER
+    }
+
+    @Test
+    fun `connected profile with live AAP session uses balanced in foreground`() {
+        resolveScannerMode(
+            overrideMode = null,
+            isForeground = true,
+            profileAddresses = setOf(ADDRESS),
+            bondedAddresses = setOf(ADDRESS),
+            connectedAddresses = setOf(ADDRESS),
+            aapReadyAddresses = setOf(ADDRESS),
+        ) shouldBe ScannerMode.BALANCED
+    }
+
+    @Test
+    fun `one connected profile without AAP keeps low latency`() {
+        resolveScannerMode(
+            overrideMode = null,
+            isForeground = false,
+            profileAddresses = setOf(ADDRESS, OTHER_ADDRESS),
+            bondedAddresses = setOf(ADDRESS, OTHER_ADDRESS),
+            connectedAddresses = setOf(ADDRESS, OTHER_ADDRESS),
+            aapReadyAddresses = setOf(ADDRESS),
+        ) shouldBe ScannerMode.LOW_LATENCY
+    }
+
+    @Test
+    fun `AAP session address matching is case insensitive`() {
+        resolveScannerMode(
+            overrideMode = null,
+            isForeground = false,
+            profileAddresses = setOf(ADDRESS),
+            bondedAddresses = setOf(ADDRESS),
+            connectedAddresses = setOf(ADDRESS),
+            aapReadyAddresses = setOf(ADDRESS.lowercase()),
+        ) shouldBe ScannerMode.LOW_POWER
     }
 
     @Test
@@ -312,11 +361,15 @@ class BleScanModeControllerTest : BaseTest() {
             every { this@mockk.connectedDevices } returns connectedDevices
             every { this@mockk.bondedDeviceAddresses } returns bondedAddresses
         }
+        val aapConnectionManager: AapConnectionManager = mockk {
+            every { this@mockk.allStates } returns MutableStateFlow(emptyMap())
+        }
         return BleScanModeController(
             appScope = backgroundScope,
             appForegroundState = foregroundState,
             profilesRepo = profilesRepo,
             bluetoothManager = bluetoothManager,
+            aapConnectionManager = aapConnectionManager,
         )
     }
 

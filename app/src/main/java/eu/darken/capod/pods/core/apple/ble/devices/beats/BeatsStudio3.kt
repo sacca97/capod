@@ -61,7 +61,7 @@ data class BeatsStudio3(
     }
 
     companion object {
-        private val DEVICE_CODE_DIRTY = 9.toUByte()
+        internal val DEVICE_CODE_DIRTY = 9.toUByte()
         private val TAG = logTag("PodDevice", "Beats", "Studio", "3")
     }
 }

@@ -95,7 +95,7 @@ data class FakeAirPodsPro(
     }
 
     companion object {
-        private val DEVICE_CODE = 0x0E20.toUShort()
+        internal val DEVICE_CODE = 0x0E20.toUShort()
         private val TAG = logTag("PodDevice", "Apple", "Fake", "AirPods", "Pro")
     }
 }

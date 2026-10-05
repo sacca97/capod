@@ -79,7 +79,7 @@ data class AirPodsMax(
     }
 
     companion object {
-        private val DEVICE_CODE = 0x0A20.toUShort()
+        internal val DEVICE_CODE = 0x0A20.toUShort()
         private val TAG = logTag("PodDevice", "Apple", "AirPods", "Max")
     }
 }

@@ -97,7 +97,7 @@ data class AirPodsPro3(
     companion object {
         // Device code for AirPods Pro 3
         // Following the pattern of other AirPods models (ends with 0x20 for Apple vendor)
-        private val DEVICE_CODE = 0x2720.toUShort()
+        internal val DEVICE_CODE = 0x2720.toUShort()
         private val TAG = logTag("PodDevice", "Apple", "AirPods", "Pro3")
     }
 }

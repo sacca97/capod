@@ -10,6 +10,8 @@ import eu.darken.capod.common.debug.logging.log
 import eu.darken.capod.common.debug.logging.logTag
 import eu.darken.capod.common.flow.replayingShare
 import eu.darken.capod.common.flow.setupCommonEventHandlers
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +33,7 @@ class BleScanModeController @Inject constructor(
     appForegroundState: AppForegroundState,
     profilesRepo: DeviceProfilesRepo,
     bluetoothManager: BluetoothManager2,
+    aapConnectionManager: AapConnectionManager,
 ) {
 
     private val overrideCounts = MutableStateFlow<Map<ScannerMode, Int>>(emptyMap())
@@ -46,14 +49,20 @@ class BleScanModeController @Inject constructor(
                 log(TAG, Logging.Priority.WARN) { "connectedDevices failed, treating as empty: $it" }
                 emit(emptyList())
             },
-        bluetoothManager.bondedDeviceAddresses,
-    ) { override, isForeground, profiles, connectedDevices, bondedAddresses ->
+        combine(
+            bluetoothManager.bondedDeviceAddresses,
+            aapConnectionManager.allStates.map { states ->
+                states.filterValues { it.connectionState == AapPodState.ConnectionState.READY }.keys
+            },
+        ) { bonded, aapReady -> bonded to aapReady },
+    ) { override, isForeground, profiles, connectedDevices, (bondedAddresses, aapReadyAddresses) ->
         resolveScannerMode(
             overrideMode = override,
             isForeground = isForeground,
             profileAddresses = profiles.mapNotNull { it.address }.toSet(),
             bondedAddresses = bondedAddresses,
             connectedAddresses = connectedDevices.map { it.address }.toSet(),
+            aapReadyAddresses = aapReadyAddresses,
         )
     }
         .distinctUntilChanged()
@@ -95,6 +104,7 @@ internal fun resolveScannerMode(
     profileAddresses: Set<BluetoothAddress>,
     bondedAddresses: Set<BluetoothAddress>,
     connectedAddresses: Set<BluetoothAddress>,
+    aapReadyAddresses: Set<BluetoothAddress> = emptySet(),
 ): ScannerMode {
     if (overrideMode != null) return overrideMode
 
@@ -102,8 +112,11 @@ internal fun resolveScannerMode(
         .intersect(bondedAddresses.normalized())
         .intersect(connectedAddresses.normalized())
 
+    // A live AAP session pushes battery, ear detection and settings, so BLE no longer has to be fast for it.
+    val connectedWithoutAap = connectedProfileAddresses - aapReadyAddresses.normalized()
+
     return when {
-        connectedProfileAddresses.isNotEmpty() -> ScannerMode.LOW_LATENCY
+        connectedWithoutAap.isNotEmpty() -> ScannerMode.LOW_LATENCY
         isForeground -> ScannerMode.BALANCED
         else -> ScannerMode.LOW_POWER
     }

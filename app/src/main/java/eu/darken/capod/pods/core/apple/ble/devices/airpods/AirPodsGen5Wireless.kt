@@ -89,7 +89,7 @@ data class AirPodsGen5Wireless(
     }
 
     companion object {
-        private val DEVICE_CODE = 0x3020.toUShort()
+        internal val DEVICE_CODE = 0x3020.toUShort()
         private val TAG = logTag("PodDevice", "Apple", "AirPods", "Gen5", "Wireless")
     }
 }
