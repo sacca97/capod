@@ -84,6 +84,10 @@
     <string name="notification_channel_device_status_connected_label">Connected device</string>
     <string name="monitor_notification_extra_enabled_hint">You can disable this notification in system settings.</string>
     <string name="monitor_notification_starting">Starting up…</string>
+    <string name="monitor_notification_label_left">L</string>
+    <string name="monitor_notification_label_right">R</string>
+    <string name="monitor_notification_label_case">Case</string>
+    <string name="monitor_notification_value_unknown">-</string>
 
     <string name="support_debuglog_label">Debug log</string>
     <string name="support_debuglog_desc">Record everything the app is doing into a zip file that you can share.</string>

@@ -29,10 +29,7 @@ import eu.darken.capod.main.core.MonitorMode
 import eu.darken.capod.main.core.PermissionTool
 import eu.darken.capod.monitor.core.DeviceMonitor
 import eu.darken.capod.monitor.core.MonitorCoroutineScope
-import eu.darken.capod.monitor.core.battery.BatteryEstimate
 import eu.darken.capod.monitor.core.battery.BatteryEstimator
-import eu.darken.capod.monitor.core.battery.displayKey
-import eu.darken.capod.monitor.core.battery.estimateFor
 import eu.darken.capod.monitor.core.MonitorModeResolver
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.monitor.core.ble.BlePodMonitor
@@ -282,31 +279,22 @@ class MonitorService : Service() {
         val monitorJob = combine(
             deviceFlow,
             notificationSettingsFlow,
-            batteryEstimator.estimates,
-        ) { currentDevice, settings, estimates ->
+        ) { currentDevice, settings ->
             NotificationInput(
                 device = currentDevice,
                 settings = settings,
-                estimate = currentDevice?.let { estimates.estimateFor(it) },
             )
         }
-            // The estimates map churns on fields the notification doesn't display (and for other
-            // profiles' devices) — only re-notify when something visible changed.
+            // Only re-notify when something visible changed.
             .distinctUntilChangedBy { input ->
-                Triple(
-                    input.device?.toNotificationKey(),
-                    input.settings,
-                    input.device?.let { input.estimate?.displayKey(it) },
-                )
+                input.device?.toNotificationKey() to input.settings
             }
-            .onEach { (currentDevice, settings, estimate) ->
+            .onEach { (currentDevice, settings) ->
                 latestNotificationSettings = settings
 
                 postPrimaryNotification(
                     notifications.getNotification(
                         currentDevice,
-                        estimate = estimate,
-                        showHint = settings.useExtraNotification,
                         showBatteryInStatusBar = settings.showBatteryInStatusBar,
                     )
                 )
@@ -316,7 +304,6 @@ class MonitorService : Service() {
                         MonitorNotifications.NOTIFICATION_ID_CONNECTED,
                         notifications.getNotificationConnected(
                             action.device,
-                            estimate,
                             showBatteryInStatusBar = settings.showBatteryInStatusBar,
                         ),
                     )
@@ -554,7 +541,6 @@ internal fun buildMonitorModeState(
 internal data class NotificationInput(
     val device: PodDevice?,
     val settings: NotificationSettings,
-    val estimate: BatteryEstimate?,
 )
 
 private data class NotificationDeviceKey(

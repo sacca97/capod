@@ -23,9 +23,7 @@ import eu.darken.capod.common.debug.logging.logTag
 import eu.darken.capod.common.notifications.PendingIntentCompat
 import eu.darken.capod.main.ui.MainActivity
 import eu.darken.capod.monitor.core.PodDevice
-import eu.darken.capod.monitor.core.battery.BatteryEstimate
 import eu.darken.capod.pods.core.apple.PodModel
-import eu.darken.capod.pods.core.apple.ble.formatBatteryPercent
 import eu.darken.capod.pods.core.apple.ble.isKnownBattery
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -34,7 +32,6 @@ import kotlin.math.roundToInt
 class MonitorNotifications @Inject constructor(
     @ApplicationContext private val context: Context,
     notificationManager: NotificationManager,
-    private val notificationViewFactory: MonitorNotificationViewFactory
 ) {
 
     private val openPi: PendingIntent
@@ -68,74 +65,18 @@ class MonitorNotifications @Inject constructor(
     private fun getBuilder(
         device: PodDevice?,
         channelId: String,
-        estimate: BatteryEstimate? = null,
-        showHint: Boolean = false,
         showBatteryInStatusBar: Boolean = false,
     ): NotificationCompat.Builder {
         if (device == null) {
             return baseBuilder(channelId).apply {
-                if (showHint) {
-                    setStyle(
-                        NotificationCompat.BigTextStyle()
-                            .bigText(context.getString(R.string.monitor_notification_extra_enabled_hint))
-                    )
-                } else {
-                    setStyle(NotificationCompat.BigTextStyle())
-                }
                 setContentTitle(context.getString(R.string.pods_none_label_short))
                 setSubText(context.getString(R.string.app_name))
             }
         }
 
         return baseBuilder(channelId).apply {
-
-            val stateText = when {
-                device.isHeadsetBeingCharged == true -> {
-                    context.getString(R.string.pods_charging_label)
-                }
-
-                device.hasEarDetection -> {
-                    if (device.isBeingWorn == true) context.getString(R.string.headset_being_worn_label)
-                    else context.getString(R.string.headset_not_being_worn_label)
-                }
-
-                device.hasCase && device.isCaseCharging == true -> {
-                    context.getString(R.string.pods_charging_label)
-                }
-
-                else -> context.getString(R.string.pods_case_unknown_state)
-            }
-
-            val batteryText = when {
-                device.hasDualPods -> {
-                    val left = formatBatteryPercent(context, device.batteryLeft)
-                    val right = formatBatteryPercent(context, device.batteryRight)
-                    if (device.hasCase) {
-                        val case = formatBatteryPercent(context, device.batteryCase)
-                        "$left $case $right"
-                    } else {
-                        "$left $right"
-                    }
-                }
-
-                device.model != PodModel.UNKNOWN -> {
-                    val headset = formatBatteryPercent(context, device.batteryHeadset)
-                    if (device.hasCase) {
-                        val case = formatBatteryPercent(context, device.batteryCase)
-                        "$headset $case"
-                    } else {
-                        headset
-                    }
-                }
-
-                else -> "?"
-            }
-
-            setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            setCustomContentView(notificationViewFactory.createContentView(device))
-            setCustomBigContentView(notificationViewFactory.createBigContentView(device, estimate))
-            setContentTitle("$batteryText ~ $stateText")
-            setSubText(null)
+            val batteryText = device.compactBatteryText(context)
+            setContentTitle(batteryText)
             val batteryIcon = if (showBatteryInStatusBar) {
                 device.statusBarBatteryPercent()?.let { batteryIcon(it) }
             } else {
@@ -145,9 +86,7 @@ class MonitorNotifications @Inject constructor(
             // Shown by lock screens that hide notification content, instead of only the app name.
             setPublicVersion(
                 baseBuilder(channelId).apply {
-                    setStyle(NotificationCompat.DecoratedCustomViewStyle())
-                    setCustomContentView(notificationViewFactory.createContentView(device))
-                    setContentTitle("$batteryText ~ $stateText")
+                    setContentTitle(batteryText)
                     batteryIcon?.let { setSmallIcon(it) }
                 }.build()
             )
@@ -179,22 +118,13 @@ class MonitorNotifications @Inject constructor(
 
     fun getNotification(
         podDevice: PodDevice?,
-        estimate: BatteryEstimate? = null,
-        showHint: Boolean = false,
         showBatteryInStatusBar: Boolean = false,
-    ): Notification =
-        getBuilder(podDevice, NOTIFICATION_CHANNEL_ID, estimate, showHint, showBatteryInStatusBar).build()
+    ): Notification = getBuilder(podDevice, NOTIFICATION_CHANNEL_ID, showBatteryInStatusBar).build()
 
     fun getNotificationConnected(
         podDevice: PodDevice?,
-        estimate: BatteryEstimate? = null,
         showBatteryInStatusBar: Boolean = false,
-    ): Notification = getBuilder(
-        podDevice,
-        NOTIFICATION_CHANNEL_ID_CONNECTED,
-        estimate,
-        showBatteryInStatusBar = showBatteryInStatusBar,
-    ).build()
+    ): Notification = getBuilder(podDevice, NOTIFICATION_CHANNEL_ID_CONNECTED, showBatteryInStatusBar).build()
 
     fun getStartupNotification(): Notification =
         getBuilder(null, NOTIFICATION_CHANNEL_ID).build()
@@ -260,3 +190,28 @@ internal fun lowestKnownPercent(vararg levels: Float): Int? = levels
     .filter { isKnownBattery(it) }
     .minOrNull()
     ?.let { (it * 100).roundToInt().coerceIn(0, 100) }
+
+internal data class CompactBatteryLevel(val label: String?, val percent: Float)
+
+/** One line of numbers only, e.g. `L 80%  ·  R 86%  ·  Case 85%`; unknown levels show as `-`. */
+internal fun compactBatteryText(levels: List<CompactBatteryLevel>, unknown: String): String =
+    levels.joinToString(separator = "  ·  ") { (label, percent) ->
+        val value = if (isKnownBattery(percent)) "${(percent * 100).roundToInt()}%" else unknown
+        if (label != null) "$label $value" else value
+    }
+
+private fun PodDevice.compactBatteryText(context: Context): String {
+    val levels = buildList {
+        when {
+            hasDualPods -> {
+                add(CompactBatteryLevel(context.getString(R.string.monitor_notification_label_left), batteryLeft))
+                add(CompactBatteryLevel(context.getString(R.string.monitor_notification_label_right), batteryRight))
+            }
+            else -> add(CompactBatteryLevel(null, batteryHeadset))
+        }
+        if (hasCase) {
+            add(CompactBatteryLevel(context.getString(R.string.monitor_notification_label_case), batteryCase))
+        }
+    }
+    return compactBatteryText(levels, context.getString(R.string.monitor_notification_value_unknown))
+}
