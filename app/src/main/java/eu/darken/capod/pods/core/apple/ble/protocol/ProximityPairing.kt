@@ -44,8 +44,8 @@ object ProximityPairing {
         }
 
         val manufacturerDataMask = ByteArray(CONTINUITY_PROTOCOL_MESSAGE_LENGTH).apply {
-            this[0] = 1
-            this[1] = 1
+            this[0] = 0xFF.toByte() // Message type must match exactly
+            this[1] = 1 // Length varies on clones, only the lowest bit is checked
         }
         val builder = ScanFilter.Builder().apply {
             setManufacturerData(

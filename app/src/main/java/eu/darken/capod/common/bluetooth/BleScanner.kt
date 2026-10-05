@@ -196,11 +196,12 @@ class BleScanner @Inject constructor(
 
         try {
             if (disableDirectScanCallback) {
-                val callbackIntent = createStartIntent()
+                val callbackIntent = createCallbackIntent()
                 log(TAG) {
                     "startScan(mode=$scannerMode, filterCount=${filterList.size}, batching=$useOffloadedBatching, filtering=$useOffloadedFiltering, callback=intent)"
                 }
-                scanner.startScan(filterList, scanSettings, callbackIntent)
+                val result = scanner.startScan(filterList, scanSettings, callbackIntent)
+                if (result != 0) log(TAG, WARN) { "startScan(intent) failed with error code $result" }
             } else {
                 log(TAG) {
                     "startScan(mode=$scannerMode, filterCount=${filterList.size}, batching=$useOffloadedBatching, filtering=$useOffloadedFiltering, callback=direct)"
@@ -237,7 +238,7 @@ class BleScanner @Inject constructor(
             flushJob?.cancel()
             try {
                 if (disableDirectScanCallback) {
-                    scanner.stopScan(createStopIntent())
+                    scanner.stopScan(createCallbackIntent())
                 } else {
                     scanner.stopScan(callback)
                 }
@@ -254,18 +255,12 @@ class BleScanner @Inject constructor(
         }
     }
 
-    private fun createStartIntent(): PendingIntent = PendingIntent.getBroadcast(
+    // Start and stop must resolve to the same PendingIntent, flags are part of its identity.
+    private fun createCallbackIntent(): PendingIntent = PendingIntent.getBroadcast(
         context,
         CALLBACK_INTENT_REQUESTCODE,
         receiverIntent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntentCompat.FLAG_MUTABLE
-    )
-
-    private fun createStopIntent(): PendingIntent = PendingIntent.getBroadcast(
-        context,
-        270,
-        receiverIntent,
-        PendingIntentCompat.FLAG_IMMUTABLE
     )
 
     companion object {
