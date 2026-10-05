@@ -214,7 +214,8 @@ class OverviewViewModel @Inject constructor(
 
     val state = combine(
         updateTicker,
-        permissionTool.missingPermissions,
+        // The battery optimization card is not shown on the home screen.
+        permissionTool.missingPermissions.map { it - Permission.IGNORE_BATTERY_OPTIMIZATION },
         pods,
         Bugs.isDebug,
         bluetoothManager.isBluetoothEnabled,
