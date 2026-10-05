@@ -50,7 +50,12 @@ class CapodApp {
         awaitOverview()
     }
 
-    fun awaitOverview(): UiObject2 = await(desc("settings_devices_label"))
+    fun awaitOverview(): UiObject2 = await(desc("settings_general_label"))
+
+    fun openManageDevices() {
+        click(desc("overview_more_options_cd"))
+        click(text("general_manage_devices_action"))
+    }
 
     /** Grants every permission the dashboard asks for through its own cards and the system dialog. */
     fun grantDashboardPermissions() {

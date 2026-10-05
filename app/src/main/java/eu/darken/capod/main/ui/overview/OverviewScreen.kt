@@ -5,17 +5,22 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.twotone.Add
 import androidx.compose.material.icons.twotone.Bluetooth
 import androidx.compose.material.icons.twotone.BluetoothConnected
 import androidx.compose.material.icons.twotone.DevicesOther
+import androidx.compose.material.icons.twotone.MoreVert
 import androidx.compose.material.icons.twotone.Settings
 import androidx.compose.material.icons.twotone.Stars
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -184,6 +189,7 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
             }
         },
         onManageDevices = { vm.goToDeviceManager() },
+        onAddDevice = { vm.goToAddDevice() },
         onSettings = { vm.goToSettings() },
         onTroubleShooter = { vm.goToTroubleShooter() },
         onUpgrade = { vm.onUpgrade() },
@@ -212,6 +218,7 @@ fun OverviewScreen(
     onRequestPermission: (Permission) -> Unit,
     onBluetoothSettings: () -> Unit,
     onManageDevices: () -> Unit,
+    onAddDevice: () -> Unit = {},
     onSettings: () -> Unit,
     onTroubleShooter: () -> Unit = {},
     onUpgrade: () -> Unit,
@@ -278,18 +285,42 @@ fun OverviewScreen(
                         }
                     }
 
-                    IconButton(onClick = onManageDevices) {
-                        Icon(
-                            imageVector = Icons.TwoTone.DevicesOther,
-                            contentDescription = stringResource(R.string.settings_devices_label),
-                        )
-                    }
-
                     IconButton(onClick = onSettings) {
                         Icon(
                             imageVector = Icons.TwoTone.Settings,
                             contentDescription = stringResource(R.string.settings_general_label),
                         )
+                    }
+
+                    var isMenuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { isMenuOpen = true }) {
+                            Icon(
+                                imageVector = Icons.TwoTone.MoreVert,
+                                contentDescription = stringResource(R.string.overview_more_options_cd),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = isMenuOpen,
+                            onDismissRequest = { isMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.general_add_device_action)) },
+                                leadingIcon = { Icon(Icons.TwoTone.Add, contentDescription = null) },
+                                onClick = {
+                                    isMenuOpen = false
+                                    onAddDevice()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.general_manage_devices_action)) },
+                                leadingIcon = { Icon(Icons.TwoTone.DevicesOther, contentDescription = null) },
+                                onClick = {
+                                    isMenuOpen = false
+                                    onManageDevices()
+                                },
+                            )
+                        }
                     }
                 },
             )
@@ -321,7 +352,7 @@ fun OverviewScreen(
             // 3. No profiles card
             if (state.profiles.isEmpty() && !state.isScanBlocked && state.isBluetoothEnabled) {
                 item(key = "no_profiles") {
-                    NoProfilesCard(onManageDevices = onManageDevices)
+                    NoProfilesCard(onAddDevice = onAddDevice)
                 }
             }
 
