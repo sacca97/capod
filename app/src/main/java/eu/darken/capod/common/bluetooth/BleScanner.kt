@@ -207,7 +207,8 @@ class BleScanner @Inject constructor(
                     "startScan(mode=$scannerMode, filterCount=${filterList.size}, batching=$useOffloadedBatching, filtering=$useOffloadedFiltering, callback=direct)"
                 }
                 scanner.startScan(filterList, scanSettings, callback)
-                flushJob = launch {
+                // Without batching (reportDelay 0) results are delivered immediately, a flush has nothing to do
+                if (useOffloadedBatching) flushJob = launch {
                     log(TAG) { "Flush job launched" }
                     while (isActive) {
                         try {
