@@ -45,13 +45,18 @@ fun AddDeviceDialogHost(
     NavigationEventHandler(vm)
 
     val context = LocalContext.current
-    LaunchedEffect(vm.closeEvents) { vm.closeEvents.collect { onDismiss() } }
+    // The view model outlives the dialog, so the next "Add device" must not resume at the old model.
+    val close = {
+        vm.backToModels()
+        onDismiss()
+    }
+    LaunchedEffect(vm.closeEvents) { vm.closeEvents.collect { close() } }
 
     val state by vm.state.collectAsStateWithLifecycle(initialValue = null)
     state?.let {
         AddDeviceDialog(
             state = it,
-            onDismiss = onDismiss,
+            onDismiss = close,
             onSelectModel = { model -> vm.selectModel(model) },
             onBack = { vm.backToModels() },
             onSelectDevice = { device -> vm.addDevice(device) },
