@@ -18,6 +18,7 @@
             <intent-filter>
                 <action android:name="eu.darken.capod.debug.ARM_WAKE_SCAN" />
                 <action android:name="eu.darken.capod.debug.DISARM_WAKE_SCAN" />
+                <action android:name="eu.darken.capod.debug.STOP_MONITOR" />
             </intent-filter>
         </receiver>
     </application>

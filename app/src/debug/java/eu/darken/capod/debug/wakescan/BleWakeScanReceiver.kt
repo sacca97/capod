@@ -33,6 +33,11 @@ class BleWakeScanReceiver : BroadcastReceiver() {
             when (intent.action) {
                 ACTION_ARM -> arm(context)
                 ACTION_DISARM -> disarm(context)
+                ACTION_STOP_MONITOR -> {
+                    // Lets a test kill the process with no service running, so a restart can only come from the scan.
+                    val stopped = context.stopService(MonitorService.intent(context))
+                    Log.w(TAG, "monitor service stop requested, wasRunning=$stopped")
+                }
                 ACTION_DELIVER -> deliver(context, intent)
                 else -> Log.w(TAG, "unknown action ${intent.action}")
             }
@@ -116,6 +121,7 @@ class BleWakeScanReceiver : BroadcastReceiver() {
         const val TAG = "WAKESCAN"
         const val ACTION_ARM = "eu.darken.capod.debug.ARM_WAKE_SCAN"
         const val ACTION_DISARM = "eu.darken.capod.debug.DISARM_WAKE_SCAN"
+        const val ACTION_STOP_MONITOR = "eu.darken.capod.debug.STOP_MONITOR"
         const val ACTION_DELIVER = "eu.darken.capod.debug.DELIVER_WAKE_SCAN"
         private const val REQUEST_CODE = 271
         private const val APPLE_COMPANY_ID = 0x004C
