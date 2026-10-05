@@ -88,7 +88,7 @@ data class BeatsStudioBuds(
     }
 
     companion object {
-        private val DEVICE_CODE = 0x1120.toUShort()
+        internal val DEVICE_CODE = 0x1120.toUShort()
         private val TAG = logTag("PodDevice", "Beats", "Studio", "Buds")
     }
 }

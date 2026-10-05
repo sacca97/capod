@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Wake scan probe: lets a companion-associated app start its foreground service from the background. -->
+    <uses-permission android:name="android.permission.REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND" />
+
     <application>
         <activity
             android:name="eu.darken.capod.debug.l2cap.L2capPocActivity"
