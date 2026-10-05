@@ -14,7 +14,7 @@ object Nav {
         data object DeviceManager : Main
 
         @Serializable
-        data class DeviceProfileCreation(val profileId: String? = null) : Main
+        data class DeviceProfileCreation(val profileId: String? = null, val presetModel: String? = null) : Main
 
         @Serializable
         data object TroubleShooter : Main

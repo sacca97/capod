@@ -2,6 +2,7 @@
     <string name="general_share_action">Share</string>
     <string name="general_done_action">Done</string>
     <string name="general_cancel_action">Cancel</string>
+    <string name="general_back_action">Back</string>
     <string name="general_thank_you_label">Thank you</string>
     <string name="general_upgrade_action">Upgrade</string>
     <string name="general_retry_action">Retry</string>
@@ -199,7 +200,13 @@
     <string name="general_error_label">Error</string>
     <string name="general_grant_permission_action">Grant permission</string>
     <string name="general_manage_devices_action">Manage devices</string>
+    <string name="general_add_device_action">Add device</string>
+    <string name="profiles_add_device_model_title">Which device do you want to add?</string>
+    <string name="profiles_add_device_paired_title">Select your %s</string>
+    <string name="profiles_add_device_paired_empty">No paired devices found. Pair your device first, then pick it here.</string>
+    <string name="profiles_add_device_enter_keys_action">Enter keys manually</string>
 
+    <string name="overview_more_options_cd">More options</string>
     <string name="overview_nomaindevice_label">No device configured</string>
     <string name="overview_nomaindevice_description">Configure your device to start monitoring battery levels and enable additional features.</string>
     <string name="overview_bluetooth_disabled_icon_cd">Bluetooth disabled, open settings</string>

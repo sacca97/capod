@@ -27,7 +27,7 @@ class UpgradeTest {
         app.grantDashboardPermissions()
         app.await(app.text("overview_monitoring_off_label"))
 
-        app.click(app.desc("settings_devices_label"))
+        app.openManageDevices()
         app.click(app.text("profiles_name_default"))
         app.await(By.clazz(EDIT_TEXT).text(app.string("profiles_name_default"))).text = PROFILE_NAME
         app.click(By.clazz(EDIT_TEXT).text(UNKNOWN_MODEL))
@@ -66,7 +66,7 @@ class UpgradeTest {
         app.await(app.text("overview_monitoring_off_label"))
         app.assertAbsent(app.text("general_continue_action"))
 
-        app.click(app.desc("settings_devices_label"))
+        app.openManageDevices()
         app.click(By.text(PROFILE_NAME))
         app.await(By.clazz(EDIT_TEXT).text(PROFILE_MODEL))
         app.device.pressBack()

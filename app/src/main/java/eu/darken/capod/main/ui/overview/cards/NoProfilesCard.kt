@@ -14,7 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.twotone.DevicesOther
+import androidx.compose.material.icons.twotone.Add
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import eu.darken.capod.R
@@ -22,7 +22,7 @@ import eu.darken.capod.common.compose.Preview2
 import eu.darken.capod.common.compose.PreviewWrapper
 
 @Composable
-fun NoProfilesCard(onManageDevices: () -> Unit) {
+fun NoProfilesCard(onAddDevice: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -46,15 +46,15 @@ fun NoProfilesCard(onManageDevices: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = onManageDevices,
+                onClick = onAddDevice,
                 modifier = Modifier.align(Alignment.End),
             ) {
                 Icon(
-                    imageVector = Icons.TwoTone.DevicesOther,
+                    imageVector = Icons.TwoTone.Add,
                     contentDescription = null,
                     modifier = Modifier.padding(end = 8.dp),
                 )
-                Text(text = stringResource(R.string.general_manage_devices_action))
+                Text(text = stringResource(R.string.general_add_device_action))
             }
         }
     }
@@ -63,5 +63,5 @@ fun NoProfilesCard(onManageDevices: () -> Unit) {
 @Preview2
 @Composable
 private fun NoProfilesCardPreview() = PreviewWrapper {
-    NoProfilesCard(onManageDevices = {})
+    NoProfilesCard(onAddDevice = {})
 }
