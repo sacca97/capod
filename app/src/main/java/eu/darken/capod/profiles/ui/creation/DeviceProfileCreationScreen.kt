@@ -73,9 +73,10 @@ import eu.darken.capod.pods.core.apple.PodModel
 @Composable
 fun DeviceProfileCreationScreenHost(
     profileId: String? = null,
+    presetModel: String? = null,
     vm: DeviceProfileCreationViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(Unit) { vm.initialize(profileId) }
+    LaunchedEffect(Unit) { vm.initialize(profileId, presetModel) }
 
     ErrorEventHandler(vm)
     NavigationEventHandler(vm)

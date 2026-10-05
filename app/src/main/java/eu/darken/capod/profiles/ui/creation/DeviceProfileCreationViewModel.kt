@@ -62,7 +62,7 @@ class DeviceProfileCreationViewModel @Inject constructor(
     val showUnsavedChangesEvent = SingleEventFlow<Unit>()
     val showDeleteConfirmationEvent = SingleEventFlow<Unit>()
 
-    fun initialize(profileId: String?) {
+    fun initialize(profileId: String?, presetModel: String? = null) {
         if (initialized && this.profileId == profileId) return
         initialized = true
 
@@ -74,7 +74,10 @@ class DeviceProfileCreationViewModel @Inject constructor(
             loadProfile(profileId)
         } else {
             val defaultName = context.getString(R.string.profiles_name_default)
-            val defaultState = ProfileEditorState(name = defaultName)
+            val defaultState = ProfileEditorState(
+                name = defaultName,
+                selectedModel = PodModel.entries.firstOrNull { it.name == presetModel },
+            )
             _initialState.value = defaultState
             _currentState.value = defaultState
         }

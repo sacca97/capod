@@ -73,6 +73,7 @@ import eu.darken.capod.main.ui.overview.cards.UnknownPodDeviceCard
 import eu.darken.capod.main.ui.overview.cards.UnmatchedDevicesCard
 import eu.darken.capod.monitor.core.PodDevice
 import eu.darken.capod.monitor.core.battery.BatteryEstimate
+import eu.darken.capod.profiles.ui.add.AddDeviceDialogHost
 import eu.darken.capod.pods.core.apple.PodModel
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
 import java.time.Instant
@@ -173,6 +174,9 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle(initialValue = null)
     val currentState = state ?: return
 
+    var isAddDeviceOpen by rememberSaveable { mutableStateOf(false) }
+    if (isAddDeviceOpen) AddDeviceDialogHost(onDismiss = { isAddDeviceOpen = false })
+
     // Play's in-app review flow needs a hosting Activity. Without one the card still renders, but
     // with its review action disabled instead of silently doing nothing.
     val activity = context as? Activity
@@ -189,7 +193,7 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
             }
         },
         onManageDevices = { vm.goToDeviceManager() },
-        onAddDevice = { vm.goToAddDevice() },
+        onAddDevice = { isAddDeviceOpen = true },
         onSettings = { vm.goToSettings() },
         onTroubleShooter = { vm.goToTroubleShooter() },
         onUpgrade = { vm.onUpgrade() },

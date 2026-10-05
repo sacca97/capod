@@ -404,11 +404,6 @@ class OverviewViewModel @Inject constructor(
         navTo(Nav.Main.DeviceManager)
     }
 
-    fun goToAddDevice() {
-        log(TAG, INFO) { "goToAddDevice()" }
-        navTo(Nav.Main.DeviceProfileCreation())
-    }
-
     fun goToDeviceSettings(device: PodDevice) {
         val profileId = device.profileId ?: return
         log(TAG, INFO) { "goToDeviceSettings(profileId=$profileId)" }
