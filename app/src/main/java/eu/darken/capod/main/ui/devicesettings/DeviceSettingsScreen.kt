@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.ArrowBack
@@ -107,6 +110,8 @@ fun DeviceSettingsScreenHost(
         }
     }
 
+    val companionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {}
+
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
@@ -134,6 +139,16 @@ fun DeviceSettingsScreenHost(
 
                 DeviceSettingsViewModel.Event.DynamicEndOfChargeRejectedByDevice -> {
                     snackbarHostState.showSnackbar(chargeCapRejectedMessage)
+                }
+
+                is DeviceSettingsViewModel.Event.LaunchCompanionAssociation -> {
+                    companionLauncher.launch(IntentSenderRequest.Builder(event.intentSender).build())
+                }
+
+                is DeviceSettingsViewModel.Event.CompanionAssociationFailed -> {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.settings_autoconnect_association_failed, event.reason ?: ""),
+                    )
                 }
             }
         }

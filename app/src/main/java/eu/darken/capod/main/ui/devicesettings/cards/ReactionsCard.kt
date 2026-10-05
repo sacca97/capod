@@ -221,7 +221,7 @@ internal fun ReactionsCard(
             onClick = { if (reactions.autoConnect) showAutoConnectConditionDialog = true },
             enabled = reactions.autoConnect,
         )
-        if (reactions.autoConnect && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (reactions.autoConnect && Build.VERSION.SDK_INT in Build.VERSION_CODES.S..36) {
             SettingsInfoBox(
                 text = stringResource(R.string.settings_autoconnect_info_android12),
             )

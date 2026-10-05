@@ -48,6 +48,7 @@
     <string name="settings_autoconnect_label">Auto connect</string>
     <string name="settings_autoconnect_description">If Android does not automatically connect, we can ask it too. This keeps CAPod monitoring in the background at all times.</string>
     <string name="settings_autoconnect_info_android12">Auto connect relies on a system feature that Android 12 and newer restricts. It may not work on your device.</string>
+    <string name="settings_autoconnect_association_failed">Could not allow auto connect. Open the case next to your phone and try again. %s</string>
     <string name="settings_autoconnect_condition_label">Auto connect condition</string>
     <string name="settings_devices_label">Devices</string>
     <string name="settings_devices_description">Manage your devices.</string>

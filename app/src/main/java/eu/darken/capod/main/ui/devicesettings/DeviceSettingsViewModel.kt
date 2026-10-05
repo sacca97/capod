@@ -1,5 +1,6 @@
 package eu.darken.capod.main.ui.devicesettings
 
+import android.content.IntentSender
 import dagger.hilt.android.lifecycle.HiltViewModel
 import eu.darken.capod.common.SystemTimeSource
 import eu.darken.capod.common.TimeSource
@@ -92,6 +93,8 @@ class DeviceSettingsViewModel @Inject constructor(
         data object OffModeRejectedByDevice : Event
         data object AncModeNotConfirmedByDevice : Event
         data object DynamicEndOfChargeRejectedByDevice : Event
+        data class LaunchCompanionAssociation(val intentSender: IntentSender) : Event
+        data class CompanionAssociationFailed(val reason: String?) : Event
     }
 
     val events = SingleEventFlow<Event>()
@@ -267,7 +270,7 @@ class DeviceSettingsViewModel @Inject constructor(
             }
             log(TAG, INFO) { "nudgeConnection($bonded) result=$result" }
             nudgeCapabilityStore.record(result)
-            if (result != NudgeAttemptResult.Accepted) {
+            if (result != NudgeAttemptResult.Accepted && !requestCompanionAssociation(address)) {
                 events.tryEmit(Event.OpenBluetoothSettings)
             }
         } finally {
@@ -464,6 +467,23 @@ class DeviceSettingsViewModel @Inject constructor(
     fun setAutoConnect(enabled: Boolean) = launch {
         log(TAG, INFO) { "setAutoConnect($enabled)" }
         updateProfileNow { it.copy(autoConnect = enabled) }
+        if (enabled) currentAddress()?.let { requestCompanionAssociation(it) }
+    }
+
+    /**
+     * Android 17 only lets us call connect() on a device we have a companion association with.
+     *
+     * @return true if an association was missing and a request was started.
+     */
+    private suspend fun requestCompanionAssociation(address: String): Boolean {
+        if (!bluetoothManager.isCompanionAssociationSupported || bluetoothManager.isCompanionAssociated(address)) return false
+        when (val result = bluetoothManager.requestCompanionAssociation(address)) {
+            is BluetoothManager2.CompanionAssociationResult.UserActionRequired ->
+                events.tryEmit(Event.LaunchCompanionAssociation(result.intentSender))
+            BluetoothManager2.CompanionAssociationResult.Created -> Unit
+            is BluetoothManager2.CompanionAssociationResult.Failed -> events.tryEmit(Event.CompanionAssociationFailed(result.reason))
+        }
+        return true
     }
 
     fun setAutoConnectCondition(condition: AutoConnectCondition) = launch {
