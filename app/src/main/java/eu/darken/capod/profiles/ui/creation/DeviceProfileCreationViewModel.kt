@@ -28,6 +28,7 @@ import eu.darken.capod.profiles.core.currentProfiles
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import java.util.UUID
 import javax.inject.Inject
 
@@ -85,7 +86,10 @@ class DeviceProfileCreationViewModel @Inject constructor(
     )
 
     private val bondedDeviceItemsFlow = combine(
-        bluetoothManager.bondedDevices().catch { emit(emptySet()) },
+        // Re-queried on every bond change, so a pod paired from here shows up without reopening.
+        bluetoothManager.bondedDeviceAddresses.flatMapLatest {
+            bluetoothManager.bondedDevices().catch { emit(emptySet()) }
+        },
         deviceProfilesRepo.profiles,
         _profileIdFlow,
     ) { bonded, profiles, currentProfileId ->
