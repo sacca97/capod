@@ -1,5 +1,7 @@
 package eu.darken.capod.profiles.ui.creation
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -51,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -77,6 +80,7 @@ fun DeviceProfileCreationScreenHost(
     ErrorEventHandler(vm)
     NavigationEventHandler(vm)
 
+    val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle(initialValue = null)
 
     var showUnsavedChangesDialog by rememberSaveable { mutableStateOf(false) }
@@ -102,6 +106,7 @@ fun DeviceProfileCreationScreenHost(
             onNameChange = { name -> vm.updateName(name) },
             onModelChange = { model -> vm.updateModel(model) },
             onDeviceChange = { device -> vm.updateSelectedDevice(device) },
+            onPairNewDevice = { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
             onIdentityKeyChange = { key -> vm.updateIdentityKey(key) },
             onEncryptionKeyChange = { key -> vm.updateEncryptionKey(key) },
             onSignalQualityChange = { quality -> vm.updateMinimumSignalQuality(quality) },
@@ -147,6 +152,7 @@ fun DeviceProfileCreationScreen(
     onNameChange: (String) -> Unit,
     onModelChange: (PodModel) -> Unit,
     onDeviceChange: (BluetoothDevice2?) -> Unit,
+    onPairNewDevice: () -> Unit = {},
     onIdentityKeyChange: (ByteArray?) -> Unit,
     onEncryptionKeyChange: (ByteArray?) -> Unit,
     onSignalQualityChange: (Float) -> Unit,
@@ -215,6 +221,7 @@ fun DeviceProfileCreationScreen(
                 onNameChange = onNameChange,
                 onModelChange = onModelChange,
                 onDeviceChange = onDeviceChange,
+                onPairNewDevice = onPairNewDevice,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -303,6 +310,7 @@ private fun DeviceInfoCard(
     onNameChange: (String) -> Unit,
     onModelChange: (PodModel) -> Unit,
     onDeviceChange: (BluetoothDevice2?) -> Unit,
+    onPairNewDevice: () -> Unit,
 ) {
     ProfileSectionCard(
         icon = Icons.TwoTone.DevicesOther,
@@ -417,6 +425,13 @@ private fun DeviceInfoCard(
                     },
                     onClick = {
                         onDeviceChange(null)
+                        deviceExpanded = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(text = stringResource(R.string.profiles_paired_device_pair_new)) },
+                    onClick = {
+                        onPairNewDevice()
                         deviceExpanded = false
                     },
                 )
