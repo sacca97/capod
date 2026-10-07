@@ -2,6 +2,7 @@ package eu.darken.capod.profiles.core
 
 import eu.darken.capod.common.serialization.ByteArrayBase64Serializer
 import eu.darken.capod.pods.core.apple.PodModel
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
 import eu.darken.capod.pods.core.apple.ble.protocol.IdentityResolvingKey
 import eu.darken.capod.pods.core.apple.ble.protocol.ProximityEncryptionKey
 import eu.darken.capod.reaction.core.autoconnect.AutoConnectCondition
@@ -29,8 +30,9 @@ data class AppleDeviceProfile(
     @SerialName("reactionAutoPlay") val autoPlay: Boolean = false,
     @SerialName("reactionStartMusicOnWear") val startMusicOnWear: Boolean = false,
     @SerialName("reactionOnePodMode") val onePodMode: Boolean = false,
-    @SerialName("reactionAutoConnect") val autoConnect: Boolean = false,
-    @SerialName("reactionAutoConnectCondition") val autoConnectCondition: AutoConnectCondition = AutoConnectCondition.WHEN_SEEN,
+    @SerialName("reactionAutoConnect") val autoConnect: Boolean = true,
+    @SerialName("companionAssociationPrompted") val companionAssociationPrompted: Boolean = false,
+    @SerialName("reactionAutoConnectCondition") val autoConnectCondition: AutoConnectCondition = AutoConnectCondition.CASE_OPEN,
     @SerialName("reactionShowPopUpOnCaseOpen") val showPopUpOnCaseOpen: Boolean = false,
     @SerialName("reactionShowPopUpOnConnection") val showPopUpOnConnection: Boolean = false,
     @SerialName("reactionConversationAction") val conversationAction: ConversationAction = ConversationAction.NOTHING,
@@ -54,8 +56,17 @@ data class AppleDeviceProfile(
      * UI to the default 0x0E (no OFF bit) even if the real cycle on-device includes OFF.
      */
     @SerialName("learnedListeningModeCycleMask") val lastRequestedListeningModeCycleMask: Int? = null,
+    /** Requested preference, applied on ready AAP sessions; the pods do not echo these writes. */
+    @SerialName("lastRequestedConnectionPreference") val lastRequestedConnectionPreference: AapSetting.ConnectionPreference.Mode? = null,
     @SerialName("stemActions") val stemActions: StemActionsConfig = StemActionsConfig(),
 ) : DeviceProfile, HasReactionConfig {
+
+    val autoConnectMode: AapSetting.ConnectionPreference.Mode
+        get() = when {
+            !autoConnect || lastRequestedConnectionPreference == AapSetting.ConnectionPreference.Mode.OFF ->
+                AapSetting.ConnectionPreference.Mode.OFF
+            else -> lastRequestedConnectionPreference ?: AapSetting.ConnectionPreference.Mode.AUTOMATIC
+        }
 
     override val reactionConfig: ReactionConfig
         get() = ReactionConfig(
@@ -63,8 +74,12 @@ data class AppleDeviceProfile(
             autoPlay = autoPlay,
             startMusicOnWear = startMusicOnWear,
             onePodMode = onePodMode,
-            autoConnect = autoConnect,
-            autoConnectCondition = autoConnectCondition,
+            autoConnect = autoConnectMode != AapSetting.ConnectionPreference.Mode.OFF,
+            // Keep old serialized WHEN_SEEN values readable, but use the incoming-link condition.
+            autoConnectCondition = when (autoConnectCondition) {
+                AutoConnectCondition.WHEN_SEEN -> AutoConnectCondition.CASE_OPEN
+                else -> autoConnectCondition
+            },
             showPopUpOnCaseOpen = showPopUpOnCaseOpen,
             showPopUpOnConnection = showPopUpOnConnection,
             conversationAction = conversationAction,

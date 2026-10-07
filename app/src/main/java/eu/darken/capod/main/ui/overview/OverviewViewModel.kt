@@ -1,6 +1,7 @@
 package eu.darken.capod.main.ui.overview
 
 import android.app.Activity
+import android.content.IntentSender
 import dagger.hilt.android.lifecycle.HiltViewModel
 import eu.darken.capod.common.TimeSource
 import eu.darken.capod.common.bluetooth.BluetoothManager2
@@ -33,6 +34,7 @@ import eu.darken.capod.monitor.core.worker.MonitorControl
 import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
 import eu.darken.capod.pods.core.apple.aap.protocol.AapCommand
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import eu.darken.capod.profiles.core.ProfileId
@@ -73,6 +75,7 @@ class OverviewViewModel @Inject constructor(
     val requestPermissionEvent = SingleEventFlow<Permission>()
 
     sealed interface Event {
+        data class LaunchCompanionAssociation(val intentSender: IntentSender) : Event
         data object OffModeRejectedByDevice : Event
         data object AncModeNotConfirmedByDevice : Event
     }
@@ -93,6 +96,46 @@ class OverviewViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private val attemptedAssociations = mutableSetOf<String>()
+    private var associationPending = false
+
+    /** Collected only while the overview is resumed, after Bluetooth permission is granted. */
+    suspend fun requestInitialCompanionAssociations() {
+        if (!bluetoothManager.isCompanionAssociationSupported) return
+        combineFlows(
+            profilesRepo.profiles,
+            permissionTool.missingScanPermissions,
+            bluetoothManager.bondedDeviceAddresses,
+        ) { profiles, missing, bonded ->
+            if (missing.isEmpty()) profiles.filter { it.address in bonded } else emptyList()
+        }.collect { profiles ->
+            if (!bluetoothManager.isCompanionAssociationSupported || associationPending) return@collect
+            val profile = profiles.filterIsInstance<AppleDeviceProfile>().firstOrNull {
+                val address = it.address
+                address != null && it.reactionConfig.autoConnect && !it.companionAssociationPrompted &&
+                    address !in attemptedAssociations && !bluetoothManager.isCompanionAssociated(address)
+            } ?: return@collect
+            val address = profile.address ?: return@collect
+            attemptedAssociations.add(address)
+            associationPending = true
+            when (val result = bluetoothManager.requestCompanionAssociation(address)) {
+                is BluetoothManager2.CompanionAssociationResult.UserActionRequired -> {
+                    profilesRepo.updateAppleProfile(profile.id) { it.copy(companionAssociationPrompted = true) }
+                    events.tryEmit(Event.LaunchCompanionAssociation(result.intentSender))
+                }
+                BluetoothManager2.CompanionAssociationResult.Created -> associationPending = false
+                is BluetoothManager2.CompanionAssociationResult.Failed -> {
+                    associationPending = false
+                    log(TAG, WARN) { "Initial companion association failed: ${result.reason}" }
+                }
+            }
+        }
+    }
+
+    fun onCompanionAssociationResult() {
+        associationPending = false
     }
 
     private val showUnmatchedDevices = MutableStateFlow(false)

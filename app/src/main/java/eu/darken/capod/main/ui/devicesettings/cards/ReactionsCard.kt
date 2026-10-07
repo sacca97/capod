@@ -37,6 +37,7 @@ import eu.darken.capod.common.settings.SettingsInfoBox
 import eu.darken.capod.common.settings.SettingsSection
 import eu.darken.capod.common.settings.SettingsSliderItem
 import eu.darken.capod.common.settings.SettingsSwitchItem
+import eu.darken.capod.main.ui.devicesettings.components.SegmentedSettingRow
 import eu.darken.capod.main.ui.devicesettings.dialogs.AutoConnectConditionDialog
 import eu.darken.capod.main.ui.devicesettings.dialogs.ConversationActionDialog
 import eu.darken.capod.main.ui.devicesettings.previewFullState
@@ -60,7 +61,8 @@ internal fun ReactionsCard(
     onConversationActionChange: (ConversationAction) -> Unit = {},
     onConversationVolumeReductionChange: (Int) -> Unit = {},
     onSleepDetectionChange: (Boolean) -> Unit = {},
-    onAutoConnectChange: (Boolean) -> Unit = {},
+    connectionPreference: AapSetting.ConnectionPreference.Mode? = null,
+    onConnectionPreferenceChange: (AapSetting.ConnectionPreference.Mode) -> Unit = {},
     onAutoConnectConditionChange: (AutoConnectCondition) -> Unit = {},
     onShowPopUpOnCaseOpenChange: (Boolean) -> Unit = {},
     onShowPopUpOnConnectionChange: (Boolean) -> Unit = {},
@@ -207,12 +209,18 @@ internal fun ReactionsCard(
                 ReactionsDivider()
             }
         }
-        SettingsSwitchItem(
+        SegmentedSettingRow<AapSetting.ConnectionPreference.Mode?>(
             icon = Icons.TwoTone.BluetoothConnected,
             title = stringResource(R.string.settings_autoconnect_label),
             subtitle = stringResource(R.string.settings_autoconnect_description),
-            checked = reactions.autoConnect,
-            onCheckedChange = onAutoConnectChange,
+            options = listOf(
+                stringResource(R.string.device_settings_connection_automatic) to AapSetting.ConnectionPreference.Mode.AUTOMATIC,
+                stringResource(R.string.device_settings_connection_last) to AapSetting.ConnectionPreference.Mode.LAST_CONNECTED,
+                stringResource(R.string.device_settings_connection_off) to AapSetting.ConnectionPreference.Mode.OFF,
+            ),
+            selected = connectionPreference,
+            onSelected = { it?.let(onConnectionPreferenceChange) },
+            enabled = true,
         )
         SettingsBaseItem(
             title = stringResource(R.string.settings_autoconnect_condition_label),
@@ -221,7 +229,9 @@ internal fun ReactionsCard(
             onClick = { if (reactions.autoConnect) showAutoConnectConditionDialog = true },
             enabled = reactions.autoConnect,
         )
-        if (reactions.autoConnect && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (reactions.autoConnect && Build.VERSION.SDK_INT < 37 &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        ) {
             SettingsInfoBox(
                 text = stringResource(R.string.settings_autoconnect_info_android12),
             )
@@ -268,7 +278,6 @@ internal fun ReactionsCard(
         AutoConnectConditionDialog(
             current = reactions.autoConnectCondition,
             hasEarDetection = features.hasEarDetection,
-            hasCase = features.hasCase,
             onSelect = {
                 onAutoConnectConditionChange(it)
                 showAutoConnectConditionDialog = false

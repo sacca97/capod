@@ -11,8 +11,11 @@ import eu.darken.capod.pods.core.apple.PodModel
 import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
 import eu.darken.capod.pods.core.apple.aap.AapDisconnectEvent
 import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.pods.core.apple.aap.protocol.AapCommand
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
 import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -58,7 +62,48 @@ class AapAutoConnect @Inject constructor(
         initialConnect(),
         reconnectOnDisconnect(),
         correctModelOnDeviceInfo(),
+        initializeConnectionPreference(),
     )
+
+    /** Applies the saved Auto connect preference to the pods whenever an AAP session becomes ready. */
+    internal fun initializeConnectionPreference(): Flow<Unit> = combine(
+        aapManager.allStates,
+        profilesRepo.profiles,
+    ) { states, profiles ->
+        profiles.filterIsInstance<AppleDeviceProfile>()
+            .filter { profile ->
+                profile.model.features.hasConnectionPreference &&
+                    states[profile.address]?.connectionState == AapPodState.ConnectionState.READY
+            }
+            .mapNotNull { profile -> profile.address?.let { Triple(profile.id, it, profile.autoConnectMode) } }
+    }
+        .distinctUntilChanged()
+        .onEach { candidates ->
+            for ((id, address, mode) in candidates) applyConnectionPreference(id, address, mode)
+        }
+        .map { }
+
+    private suspend fun applyConnectionPreference(
+        id: String,
+        address: String,
+        mode: AapSetting.ConnectionPreference.Mode,
+    ) {
+        try {
+            aapManager.sendCommand(address, AapCommand.SetConnectionPreference(mode))
+            // The pods do not echo this write, so remember the first mode that was applied.
+            val saved = profilesRepo.profiles.first().filterIsInstance<AppleDeviceProfile>().firstOrNull { it.id == id }
+            if (saved?.lastRequestedConnectionPreference != null) return
+            profilesRepo.updateAppleProfile(id) {
+                if (it.lastRequestedConnectionPreference == null && it.address == address) {
+                    it.copy(lastRequestedConnectionPreference = mode)
+                } else it
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log(TAG, WARN) { "Connection preference failed: ${e.message}" }
+        }
+    }
 
     private fun initialConnect(): Flow<Unit> = combine(
         profilesRepo.profiles,
@@ -267,7 +312,7 @@ class AapAutoConnect @Inject constructor(
                     delay(2.seconds)
 
                     aapManager.disconnect(address)
-                    profilesRepo.updateProfile(profile.copy(model = detectedModel))
+                    profilesRepo.updateAppleProfile(profile.id) { it.copy(model = detectedModel) }
                     log(TAG) { "AAP model corrected for $address: ${profile.model} -> $detectedModel" }
 
                     // Reconnect explicitly

@@ -22,6 +22,8 @@ import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import io.kotest.matchers.shouldBe
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -147,6 +149,30 @@ class OverviewViewModelTest : BaseTest() {
     fun teardown() {
         Dispatchers.resetMain()
         Bugs.isDebug.value = false
+    }
+
+    @Test
+    fun `initial companion request waits for pairing and skips explicit off`() = runTest(testDispatcher) {
+        val bonded = MutableStateFlow<Set<String>>(emptySet())
+        every { bluetoothManager.isCompanionAssociationSupported } returns true
+        every { bluetoothManager.isCompanionAssociated(any()) } returns false
+        every { bluetoothManager.bondedDeviceAddresses } returns bonded
+        coEvery { bluetoothManager.requestCompanionAssociation(any()) } returns
+            BluetoothManager2.CompanionAssociationResult.Failed("test")
+        profilesFlow.value = listOf(AppleDeviceProfile(label = "Pods", address = "test-pods"))
+        val vm = createViewModel()
+        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            vm.requestInitialCompanionAssociations()
+        }
+        coVerify(exactly = 0) { bluetoothManager.requestCompanionAssociation(any()) }
+        profilesFlow.value = listOf(AppleDeviceProfile(label = "Pods", address = "test-pods", autoConnect = false))
+        bonded.value = setOf("test-pods")
+        coVerify(exactly = 0) { bluetoothManager.requestCompanionAssociation(any()) }
+        profilesFlow.value = listOf(AppleDeviceProfile(label = "Pods", address = "test-pods"))
+        coVerify(exactly = 1) { bluetoothManager.requestCompanionAssociation("test-pods") }
+        profilesFlow.value = listOf(AppleDeviceProfile(label = "Renamed", address = "test-pods"))
+        coVerify(exactly = 1) { bluetoothManager.requestCompanionAssociation("test-pods") }
+        job.cancel()
     }
 
     private fun createViewModel() = OverviewViewModel(

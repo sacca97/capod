@@ -4,160 +4,81 @@ import eu.darken.capod.common.bluetooth.BluetoothManager2
 import eu.darken.capod.common.bluetooth.NudgeAvailability
 import eu.darken.capod.common.bluetooth.NudgeCapabilityStore
 import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
-import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
 import eu.darken.capod.common.debug.logging.log
 import eu.darken.capod.common.debug.logging.logTag
-import eu.darken.capod.common.flow.setupCommonEventHandlers
-import eu.darken.capod.main.core.GeneralSettings
-import eu.darken.capod.monitor.core.DeviceMonitor
-import eu.darken.capod.monitor.core.primaryDevice
-import eu.darken.capod.pods.core.apple.ble.devices.DualApplePods
+import eu.darken.capod.common.hasApiLevel
+import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
+import eu.darken.capod.pods.core.apple.aap.AapPodState
+import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
+import eu.darken.capod.profiles.core.AppleDeviceProfile
+import eu.darken.capod.profiles.core.DeviceProfilesRepo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.distinctUntilChangedBy
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Requests audio for pods that report themselves worn over a live AAP session while they are not
+ * audio-connected. The other conditions are handled when the pods open their own link, see
+ * `BluetoothEventReceiver`.
+ */
 @Singleton
 class AutoConnect @Inject constructor(
     private val bluetoothManager: BluetoothManager2,
-    private val deviceMonitor: DeviceMonitor,
+    private val aapManager: AapConnectionManager,
+    private val profilesRepo: DeviceProfilesRepo,
     private val nudgeCapabilityStore: NudgeCapabilityStore,
 ) {
 
-    fun monitor(): Flow<Unit> = deviceMonitor.primaryDevice()
-        .map { it?.reactions?.autoConnect == true }
+    fun monitor(): Flow<Unit> = combine(
+        aapManager.allStates,
+        profilesRepo.profiles,
+        bluetoothManager.connectedDevices,
+    ) { states, profiles, connected ->
+        profiles.filterIsInstance<AppleDeviceProfile>()
+            .filter { profile -> profile.wantsAudioWhenWorn(states[profile.address]) }
+            .filter { profile -> connected.none { it.address.equals(profile.address, ignoreCase = true) } }
+            .mapNotNull { it.address }
+    }
         .distinctUntilChanged()
-        .flatMapLatest { isAutoConnectEnabled ->
-            if (isAutoConnectEnabled) {
-                combine(
-                    bluetoothManager.connectedDevices,
-                    deviceMonitor.primaryDevice().filterNotNull().distinctUntilChangedBy {
-                        // Include caseLidState: for the CASE_OPEN condition it is derived from history
-                        // and can flip to OPEN while the selected frame's raw bytes are unchanged.
-                        listOf(it.rawDataHex, it.reactions.autoConnectCondition, it.reactions.onePodMode, it.caseLidState)
-                    },
-                ) { connectedDevices, mainDevice ->
-                    connectedDevices to mainDevice
-                }
-            } else {
-                emptyFlow()
-            }
-        }
-        .map { (connectedDevices, mainDevice) ->
-            log(TAG, VERBOSE) { "mainPodDevice is $mainDevice" }
+        .onEach { addresses -> addresses.forEach { connectAudio(it) } }
+        .map { }
 
-            val mainDeviceAddr = mainDevice.address
-            if (mainDeviceAddr.isNullOrEmpty()) {
-                log(TAG, WARN) { "mainDeviceAddress is null" }
-                return@map
-            }
-
-            val bondedDevice = bluetoothManager.bondedDevices().first().firstOrNull { it.address == mainDeviceAddr }
-
-            if (bondedDevice == null) {
-                log(TAG, WARN) { "No bonded device matches $mainDeviceAddr" }
-                return@map
-            } else {
-                log(TAG, VERBOSE) { "Found target device: $bondedDevice" }
-            }
-
-            val isAlreadyConnected = connectedDevices.any {
-                it.address == bondedDevice.address
-            }
-
-            if (isAlreadyConnected) {
-                log(TAG) { "We are already connected to the target device: $bondedDevice" }
-                return@map
-            }
-
-            val reactions = mainDevice.reactions
-            val condition = reactions.autoConnectCondition
-            log(TAG) { "Checking condition $condition" }
-
-            val lidState = mainDevice.caseLidState
-            val isBeingWorn = mainDevice.isBeingWorn ?: false
-            val isEitherPodInEar = mainDevice.isEitherPodInEar ?: false
-            val onePodMode = reactions.onePodMode
-
-            val decision = evaluateAutoConnect(
-                mainDeviceAddr = mainDeviceAddr,
-                hasBondedDevice = true,
-                isAlreadyConnected = false,
-                condition = condition,
-                lidState = lidState,
-                isBeingWorn = isBeingWorn,
-                isEitherPodInEar = isEitherPodInEar,
-                onePodMode = onePodMode,
-                supportsEarDetection = mainDevice.hasEarDetection,
-            )
-
-            if (!decision.shouldConnect) {
-                log(TAG) { "Auto connect condition ($condition) is not fullfilled: ${decision.reason}" }
-                return@map
-            }
-
-            if (nudgeCapabilityStore.availability.value == NudgeAvailability.BROKEN) {
-                log(TAG, WARN) { "nudgeConnection is known broken on this device, skipping" }
-                return@map
-            }
-
-            val result = bluetoothManager.nudgeConnection(bondedDevice)
-            log(TAG) { "nudgeConnection($bondedDevice) returned $result" }
-            nudgeCapabilityStore.record(result)
-        }
-        .setupCommonEventHandlers(TAG) { "monitor" }
-
-    internal fun evaluateAutoConnect(
-        mainDeviceAddr: String?,
-        hasBondedDevice: Boolean,
-        isAlreadyConnected: Boolean,
-        condition: AutoConnectCondition,
-        lidState: DualApplePods.LidState?,
-        isBeingWorn: Boolean,
-        isEitherPodInEar: Boolean,
-        onePodMode: Boolean,
-        supportsEarDetection: Boolean,
-    ): AutoConnectDecision {
-        if (mainDeviceAddr.isNullOrEmpty()) {
-            return AutoConnectDecision(false, "No main device address")
-        }
-        if (!hasBondedDevice) {
-            return AutoConnectDecision(false, "No bonded device")
-        }
-        if (isAlreadyConnected) {
-            return AutoConnectDecision(false, "Already connected")
-        }
-        return when (condition) {
-            AutoConnectCondition.WHEN_SEEN -> AutoConnectDecision(true, "WHEN_SEEN: device visible")
-            AutoConnectCondition.CASE_OPEN -> {
-                if (lidState == null) {
-                    AutoConnectDecision(true, "CASE_OPEN: unsupported device, permissive fallback")
-                } else when (lidState) {
-                    DualApplePods.LidState.OPEN -> AutoConnectDecision(true, "CASE_OPEN: lid is open")
-                    else -> AutoConnectDecision(false, "CASE_OPEN: lid is $lidState")
-                }
-            }
-            AutoConnectCondition.IN_EAR -> {
-                if (!supportsEarDetection) {
-                    return AutoConnectDecision(true, "IN_EAR: unsupported device, permissive fallback")
-                }
-                val inEar = if (onePodMode) isEitherPodInEar else isBeingWorn
-                AutoConnectDecision(inEar, if (inEar) "IN_EAR: pod in ear" else "IN_EAR: not in ear")
-            }
+    private fun AppleDeviceProfile.wantsAudioWhenWorn(state: AapPodState?): Boolean {
+        val reactions = reactionConfig
+        if (!reactions.autoConnect || reactions.autoConnectCondition != AutoConnectCondition.IN_EAR) return false
+        if (state?.connectionState != AapPodState.ConnectionState.READY) return false
+        val ear = state.aapEarDetection ?: return false
+        return when {
+            reactions.onePodMode -> ear.isEitherPodInEar
+            else -> ear.primaryPod == AapSetting.EarDetection.PodPlacement.IN_EAR &&
+                ear.secondaryPod == AapSetting.EarDetection.PodPlacement.IN_EAR
         }
     }
 
-    data class AutoConnectDecision(
-        val shouldConnect: Boolean,
-        val reason: String,
-    )
+    private suspend fun connectAudio(address: String) {
+        if (hasApiLevel(37)) {
+            if (!bluetoothManager.isCompanionAssociated(address)) {
+                log(TAG, VERBOSE) { "Not connecting $address, no companion association" }
+                return
+            }
+        } else if (nudgeCapabilityStore.availability.value == NudgeAvailability.BROKEN) {
+            log(TAG, VERBOSE) { "Not connecting $address, the system connect method is known to be blocked" }
+            return
+        }
+        val device = bluetoothManager.bondedDevices().first().firstOrNull { it.address == address }?.internal
+        if (device == null) {
+            log(TAG, VERBOSE) { "Not connecting $address, no bonded device" }
+            return
+        }
+        val result = bluetoothManager.connectAudio(device)
+        if (!hasApiLevel(37)) nudgeCapabilityStore.record(result)
+        log(TAG) { "In-ear audio connection result=$result" }
+    }
 
     companion object {
         private val TAG = logTag("Reaction", "AutoConnect")

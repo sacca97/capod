@@ -2,6 +2,9 @@ package eu.darken.capod.main.ui.devicesettings
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -107,11 +110,22 @@ fun DeviceSettingsScreenHost(
         }
     }
 
+    val companionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        vm.onCompanionAssociationResult()
+    }
+
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
                 DeviceSettingsViewModel.Event.OpenBluetoothSettings -> {
                     context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+
+                is DeviceSettingsViewModel.Event.ConnectFailed -> {
+                    snackbarHostState.showSnackbar(
+                        event.message?.let { context.getString(R.string.device_settings_send_failed, it) }
+                            ?: context.getString(R.string.device_settings_connect_rejected),
+                    )
                 }
 
                 is DeviceSettingsViewModel.Event.SendFailed -> {
@@ -134,6 +148,16 @@ fun DeviceSettingsScreenHost(
 
                 DeviceSettingsViewModel.Event.DynamicEndOfChargeRejectedByDevice -> {
                     snackbarHostState.showSnackbar(chargeCapRejectedMessage)
+                }
+
+                is DeviceSettingsViewModel.Event.LaunchCompanionAssociation -> {
+                    companionLauncher.launch(IntentSenderRequest.Builder(event.intentSender).build())
+                }
+
+                is DeviceSettingsViewModel.Event.CompanionAssociationFailed -> {
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.settings_autoconnect_association_failed, event.reason ?: ""),
+                    )
                 }
             }
         }
@@ -172,6 +196,7 @@ fun DeviceSettingsScreenHost(
         onAllowOffOptionChange = { vm.setAllowOffOption(it) },
         onSleepDetectionChange = { vm.setSleepDetection(it) },
         onDynamicEndOfChargeChange = { vm.setDynamicEndOfCharge(it) },
+        onConnectionPreferenceChange = { vm.setConnectionPreference(it) },
         onDeviceNameChange = { vm.setDeviceName(it) },
         onPressControlsClick = { vm.navToPressControls() },
         onEditProfile = { vm.navToEditProfile() },
@@ -181,7 +206,6 @@ fun DeviceSettingsScreenHost(
         onAutoPlayChange = { vm.setAutoPlay(it) },
         onAutoPauseChange = { vm.setAutoPause(it) },
         onStartMusicOnWearChange = { vm.setStartMusicOnWear(it) },
-        onAutoConnectChange = { vm.setAutoConnect(it) },
         onAutoConnectConditionChange = { vm.setAutoConnectCondition(it) },
         onShowPopUpOnCaseOpenChange = { vm.setShowPopUpOnCaseOpen(it) },
         onShowPopUpOnConnectionChange = { vm.setShowPopUpOnConnection(it) },
@@ -219,6 +243,7 @@ fun DeviceSettingsScreen(
     onAllowOffOptionChange: (Boolean) -> Unit = {},
     onSleepDetectionChange: (Boolean) -> Unit = {},
     onDynamicEndOfChargeChange: (Boolean) -> Unit = {},
+    onConnectionPreferenceChange: (AapSetting.ConnectionPreference.Mode) -> Unit = {},
     onDeviceNameChange: (String) -> Unit = {},
     onPressControlsClick: () -> Unit = {},
     onEditProfile: () -> Unit = {},
@@ -228,7 +253,6 @@ fun DeviceSettingsScreen(
     onAutoPlayChange: (Boolean) -> Unit = {},
     onAutoPauseChange: (Boolean) -> Unit = {},
     onStartMusicOnWearChange: (Boolean) -> Unit = {},
-    onAutoConnectChange: (Boolean) -> Unit = {},
     onAutoConnectConditionChange: (AutoConnectCondition) -> Unit = {},
     onShowPopUpOnCaseOpenChange: (Boolean) -> Unit = {},
     onShowPopUpOnConnectionChange: (Boolean) -> Unit = {},
@@ -404,16 +428,15 @@ fun DeviceSettingsScreen(
             ) {
                 item("not_connected_info") {
                     NotConnectedCard(
-                        isNudgeAvailable = state.isNudgeAvailable,
                         isForceConnecting = state.isForceConnecting,
                         onConnect = onForceConnect,
                     )
                 }
             }
 
-            // ── Reactions (gated on classic connection — needs phone to be the audio target) ──
+            // Profile reactions remain configurable while disconnected; AAP controls require a ready session.
             if (device != null && device.hasSelectedPairedDevice &&
-                features != null && state.isClassicallyConnected
+                features != null
             ) {
                 item("reactions_section") {
                     ReactionsCard(
@@ -428,7 +451,8 @@ fun DeviceSettingsScreen(
                         onConversationActionChange = onConversationActionChange,
                         onConversationVolumeReductionChange = onConversationVolumeReductionChange,
                         onSleepDetectionChange = onSleepDetectionChange,
-                        onAutoConnectChange = onAutoConnectChange,
+                        connectionPreference = state.connectionPreference,
+                        onConnectionPreferenceChange = onConnectionPreferenceChange,
                         onAutoConnectConditionChange = onAutoConnectConditionChange,
                         onShowPopUpOnCaseOpenChange = onShowPopUpOnCaseOpenChange,
                         onShowPopUpOnConnectionChange = onShowPopUpOnConnectionChange,

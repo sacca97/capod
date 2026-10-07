@@ -1,6 +1,7 @@
 package eu.darken.capod.monitor.core.ble
 
 import android.bluetooth.le.ScanFilter
+import eu.darken.capod.common.AppForegroundState
 import eu.darken.capod.common.TimeSource
 import eu.darken.capod.common.bluetooth.BleScanResult
 import eu.darken.capod.common.bluetooth.BleScanner
@@ -28,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +55,7 @@ class BlePodMonitor @Inject constructor(
     private val timeSource: TimeSource,
     private val generalSettings: GeneralSettings,
     bluetoothManager: BluetoothManager2,
+    appForegroundState: AppForegroundState,
     private val permissionTool: PermissionTool,
     private val profilesRepo: DeviceProfilesRepo,
 ) {
@@ -118,11 +121,18 @@ class BlePodMonitor @Inject constructor(
 
     val devices: Flow<List<BlePodSnapshot>> = combine(
         permissionTool.missingScanPermissions,
-        bluetoothManager.isBluetoothEnabled
-    ) { missingScanPermissions, isBluetoothEnabled ->
+        bluetoothManager.isBluetoothEnabled,
+        appForegroundState.isForeground,
+        bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
+        profilesRepo.profiles,
+    ) { missingScanPermissions, isBluetoothEnabled, isForeground, connectedDevices, profiles ->
         log(TAG) { "devices: missingScanPermissions=$missingScanPermissions, isBluetoothEnabled=$isBluetoothEnabled" }
-        missingScanPermissions.isEmpty() && isBluetoothEnabled
+        missingScanPermissions.isEmpty() && isBluetoothEnabled && (
+            isForeground ||
+                profiles.any { profile -> connectedDevices.any { it.address.equals(profile.address, ignoreCase = true) } }
+            )
     }
+        .distinctUntilChanged()
         .flatMapLatest { isReady ->
             if (!isReady) {
                 log(TAG, Logging.Priority.WARN) { "Bluetooth is not ready" }

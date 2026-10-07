@@ -42,6 +42,21 @@ class DefaultAapDeviceProfile(
         const val ANC_WIRE_TRANSPARENCY = 0x03
         const val ANC_WIRE_ADAPTIVE = 0x04
 
+        /** Value written to the accessory auto connect control to allow accessory-initiated links (the iPhone's choice). */
+        private const val ACCESSORY_AUTO_CONNECT_ALLOWED = 1
+
+        /** Value written for Off. macOS writes the same value during setup, so its exact meaning is not verified. */
+        private const val ACCESSORY_AUTO_CONNECT_OFF = 2
+
+        /** Last byte of the six-byte smart routing info (0x44, subtype 0x04) message. */
+        private const val ROUTING_CONTEXT_AUTOMATIC: Byte = 0x06
+        private const val ROUTING_CONTEXT_LAST_CONNECTED: Byte = 0x08
+
+        private fun routingContext(preference: Byte) =
+            byteArrayOf(0x04, 0x00, 0x04, 0x00, 0x44, 0x00, 0x04, 0x00, 0x02, 0x00, 0x03, preference)
+
+        private val CONNECTED_DEVICES_QUERY = byteArrayOf(0x04, 0x00, 0x04, 0x00, 0x2D, 0x00)
+
         /** Fixed length of each earbud UUID segment in the Information payload (segments 11 & 12). */
         private const val UUID_LEN = 17
 
@@ -78,7 +93,27 @@ class DefaultAapDeviceProfile(
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     )
 
+    override fun encodeCommands(command: AapCommand): List<ByteArray> {
+        if (command !is AapCommand.SetConnectionPreference) return super.encodeCommands(command)
+        require(model.features.hasConnectionPreference) { "Connection preference is not supported by $model" }
+        if (command.mode == AapSetting.ConnectionPreference.Mode.OFF) {
+            return listOf(
+                buildSettingsMessage(AapControlId.ALLOW_AUTO_CONNECT_FROM_AUDIO_ACCESSORY.value, ACCESSORY_AUTO_CONNECT_OFF),
+            )
+        }
+        val automatic = command.mode == AapSetting.ConnectionPreference.Mode.AUTOMATIC
+        // Allow accessory-initiated links so Android can request audio on ACL_CONNECTED.
+        val packets = listOf(
+            buildSettingsMessage(AapControlId.ALLOW_AUTO_CONNECT_FROM_AUDIO_ACCESSORY.value, ACCESSORY_AUTO_CONNECT_ALLOWED),
+            buildSettingsMessage(AapControlId.SMART_ROUTING_MODE.value, if (automatic) 1 else 2),
+            routingContext(if (automatic) ROUTING_CONTEXT_AUTOMATIC else ROUTING_CONTEXT_LAST_CONNECTED),
+        )
+        // Query the current connected-device list; no host address is sent.
+        return if (automatic) packets + CONNECTED_DEVICES_QUERY else packets
+    }
+
     override fun encodeCommand(command: AapCommand): ByteArray = when (command) {
+        is AapCommand.SetConnectionPreference -> throw UnsupportedOperationException("Use encodeCommands for connection preference")
         is AapCommand.SetAncMode -> buildSettingsMessage(AapControlId.LISTEN_MODE.value, encodeAncMode(command.mode))
         is AapCommand.SetConversationalAwareness -> buildSettingsMessage(AapControlId.CONVERSATION_DETECT.value, encodeAppleBool(command.enabled))
         is AapCommand.SetPressSpeed -> buildSettingsMessage(AapControlId.DOUBLE_CLICK_INTERVAL.value, command.value.wireValue)
@@ -129,7 +164,7 @@ class DefaultAapDeviceProfile(
             )
         }
 
-        // Connected devices list (push-only from device)
+        // Connected devices list (query response or unsolicited update)
         if (message.commandType == AapMessageType.CONNECTED_DEVICES.value) {
             if (message.payload.size < 3) return null
             val count = message.payload[2].toInt() and 0xFF
@@ -213,6 +248,15 @@ class DefaultAapDeviceProfile(
         val value = message.payload[1].toInt() and 0xFF
 
         return when (settingId) {
+            AapControlId.SMART_ROUTING_MODE.value -> {
+                if (!model.features.hasConnectionPreference) return null
+                val mode = when (value) {
+                    1 -> AapSetting.ConnectionPreference.Mode.AUTOMATIC
+                    2 -> AapSetting.ConnectionPreference.Mode.LAST_CONNECTED
+                    else -> return null
+                }
+                AapSetting.ConnectionPreference::class to AapSetting.ConnectionPreference(mode)
+            }
             AapControlId.LISTEN_MODE.value -> {
                 val mode = decodeAncMode(value) ?: return null
                 AapSetting.AncMode::class to AapSetting.AncMode(current = mode, supported = supportedAncModes)

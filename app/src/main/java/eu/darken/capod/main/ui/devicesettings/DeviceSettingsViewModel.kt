@@ -1,19 +1,19 @@
 package eu.darken.capod.main.ui.devicesettings
 
+import android.content.IntentSender
 import dagger.hilt.android.lifecycle.HiltViewModel
 import eu.darken.capod.common.SystemTimeSource
 import eu.darken.capod.common.TimeSource
 import eu.darken.capod.common.WebpageTool
 import eu.darken.capod.common.bluetooth.BluetoothManager2
 import eu.darken.capod.common.bluetooth.NudgeAttemptResult
-import eu.darken.capod.common.bluetooth.NudgeAvailability
-import eu.darken.capod.common.bluetooth.NudgeCapabilityStore
 import eu.darken.capod.common.coroutine.DispatcherProvider
 import eu.darken.capod.common.debug.logging.Logging.Priority.INFO
 import eu.darken.capod.common.debug.logging.Logging.Priority.WARN
 import eu.darken.capod.common.debug.logging.log
 import eu.darken.capod.common.debug.logging.logTag
 import eu.darken.capod.common.flow.SingleEventFlow
+import eu.darken.capod.common.hasApiLevel
 import eu.darken.capod.common.navigation.Nav
 import eu.darken.capod.common.uix.ViewModel4
 import eu.darken.capod.common.upgrade.UpgradeRepo
@@ -62,7 +62,6 @@ class DeviceSettingsViewModel @Inject constructor(
     private val batteryEstimator: BatteryEstimator,
     private val drainStore: BatteryDrainStore,
     private val monitorModeResolver: MonitorModeResolver,
-    private val nudgeCapabilityStore: NudgeCapabilityStore,
     private val timeSource: TimeSource,
     private val webpageTool: WebpageTool,
 ) : ViewModel4(dispatcherProvider) {
@@ -86,12 +85,15 @@ class DeviceSettingsViewModel @Inject constructor(
     private val isForceConnecting = MutableStateFlow(false)
 
     sealed interface Event {
+        data class ConnectFailed(val message: String?) : Event
         data object OpenBluetoothSettings : Event
         data class SendFailed(val command: AapCommand, val message: String?) : Event
         data object SystemRenameUnavailable : Event
         data object OffModeRejectedByDevice : Event
         data object AncModeNotConfirmedByDevice : Event
         data object DynamicEndOfChargeRejectedByDevice : Event
+        data class LaunchCompanionAssociation(val intentSender: IntentSender) : Event
+        data class CompanionAssociationFailed(val reason: String?) : Event
     }
 
     val events = SingleEventFlow<Event>()
@@ -132,7 +134,6 @@ class DeviceSettingsViewModel @Inject constructor(
             bluetoothManager.connectedDevices.onStart { emit(emptyList()) },
             monitorModeResolver.effectiveMode,
             profilesRepo.profiles,
-            nudgeCapabilityStore.availability,
             drainStore.profiles,
         ) { args ->
             val device = args[1] as PodDevice?
@@ -145,10 +146,9 @@ class DeviceSettingsViewModel @Inject constructor(
 
             @Suppress("UNCHECKED_CAST")
             val profiles = args[6] as List<eu.darken.capod.profiles.core.DeviceProfile>
-            val nudgeAvailability = args[7] as NudgeAvailability
 
             @Suppress("UNCHECKED_CAST")
-            val drainProfiles = args[8] as Map<ProfileId, DrainProfile>
+            val drainProfiles = args[7] as Map<ProfileId, DrainProfile>
             val appleProfile = profiles.filterIsInstance<AppleDeviceProfile>()
                 .firstOrNull { it.id == profileId }
             val stemActions = appleProfile?.stemActions
@@ -168,9 +168,9 @@ class DeviceSettingsViewModel @Inject constructor(
                 ?.let { BatteryHealth.estimate(drainProfiles[profileId], it.model, now) }
             State(
                 device = device,
+                connectionPreference = appleProfile?.autoConnectMode ?: AapSetting.ConnectionPreference.Mode.OFF,
                 now = now,
                 isPro = upgrade.isPro,
-                isNudgeAvailable = nudgeAvailability != NudgeAvailability.BROKEN,
                 isForceConnecting = forcing,
                 isClassicallyConnected = device?.address?.let { it in connectedAddresses } == true,
                 monitorMode = monitorMode,
@@ -207,9 +207,9 @@ class DeviceSettingsViewModel @Inject constructor(
 
     data class State(
         val device: PodDevice?,
+        val connectionPreference: AapSetting.ConnectionPreference.Mode? = null,
         val now: Instant = SystemTimeSource.now(),
         val isPro: Boolean = false,
-        val isNudgeAvailable: Boolean = true,
         val isForceConnecting: Boolean = false,
         val isClassicallyConnected: Boolean = false,
         val monitorMode: MonitorMode = MonitorMode.AUTOMATIC,
@@ -234,42 +234,45 @@ class DeviceSettingsViewModel @Inject constructor(
         return deviceMonitor.getDeviceForProfile(profileId)?.address
     }
 
+    private var connectAfterAssociation = false
+
+    fun onCompanionAssociationResult() {
+        if (!connectAfterAssociation) return
+        connectAfterAssociation = false
+        launch {
+            val address = currentAddress() ?: return@launch
+            if (bluetoothManager.isCompanionAssociated(address)) forceConnect()
+        }
+    }
+
     fun forceConnect() = launch {
-        if (!isForceConnecting.compareAndSet(expect = false, update = true)) {
-            log(TAG) { "forceConnect already in progress" }
+        if (!hasApiLevel(37) || !bluetoothManager.isCompanionAssociationSupported) {
+            events.tryEmit(Event.OpenBluetoothSettings)
             return@launch
         }
+        if (!isForceConnecting.compareAndSet(expect = false, update = true)) return@launch
         try {
             val address = currentAddress() ?: run {
                 events.tryEmit(Event.OpenBluetoothSettings)
                 return@launch
             }
-            val bonded = try {
-                bluetoothManager.bondedDevices().first().firstOrNull { it.address == address }
-            } catch (e: Exception) {
-                log(TAG, WARN) { "bondedDevices() failed: ${e.message}" }
-                null
+            if (!bluetoothManager.isCompanionAssociated(address)) {
+                connectAfterAssociation = true
+                requestCompanionAssociation(address)
+                return@launch
             }
+            val bonded = bluetoothManager.bondedDevices().first().firstOrNull { it.address == address }?.internal
             if (bonded == null) {
-                log(TAG, WARN) { "No bonded device for $address — opening Bluetooth settings" }
                 events.tryEmit(Event.OpenBluetoothSettings)
                 return@launch
             }
-            if (nudgeCapabilityStore.availability.value == NudgeAvailability.BROKEN) {
-                events.tryEmit(Event.OpenBluetoothSettings)
-                return@launch
-            }
-            val result = try {
-                bluetoothManager.nudgeConnection(bonded)
-            } catch (e: Exception) {
-                log(TAG, WARN) { "nudgeConnection threw: ${e.message}" }
-                NudgeAttemptResult.Rejected
-            }
-            log(TAG, INFO) { "nudgeConnection($bonded) result=$result" }
-            nudgeCapabilityStore.record(result)
+            val result = bluetoothManager.connectAudio(bonded)
+            log(TAG, INFO) { "Manual audio connect result=$result" }
             if (result != NudgeAttemptResult.Accepted) {
-                events.tryEmit(Event.OpenBluetoothSettings)
+                events.tryEmit(Event.ConnectFailed(null))
             }
+        } catch (e: Exception) {
+            events.tryEmit(Event.ConnectFailed(e.message))
         } finally {
             isForceConnecting.value = false
         }
@@ -354,6 +357,18 @@ class DeviceSettingsViewModel @Inject constructor(
     }
 
     fun setDynamicEndOfCharge(enabled: Boolean) = send(AapCommand.SetDynamicEndOfCharge(enabled))
+
+    fun setConnectionPreference(mode: AapSetting.ConnectionPreference.Mode) = launch {
+        updateProfileNow {
+            it.copy(
+                autoConnect = mode != AapSetting.ConnectionPreference.Mode.OFF,
+                lastRequestedConnectionPreference = mode,
+            )
+        }
+        if (mode != AapSetting.ConnectionPreference.Mode.OFF) {
+            currentAddress()?.let { requestCompanionAssociation(it) }
+        }
+    }
 
     fun setDeviceName(name: String) = launch {
         val address = currentAddress() ?: return@launch
@@ -461,9 +476,16 @@ class DeviceSettingsViewModel @Inject constructor(
         sendInternal(AapCommand.SetEarDetectionEnabled(effectiveAutoPlay || effectiveAutoPause))
     }
 
-    fun setAutoConnect(enabled: Boolean) = launch {
-        log(TAG, INFO) { "setAutoConnect($enabled)" }
-        updateProfileNow { it.copy(autoConnect = enabled) }
+    /** Opens the system companion dialog unless [address] is already associated. */
+    private suspend fun requestCompanionAssociation(address: String) {
+        if (!bluetoothManager.isCompanionAssociationSupported || bluetoothManager.isCompanionAssociated(address)) return
+        when (val result = bluetoothManager.requestCompanionAssociation(address)) {
+            is BluetoothManager2.CompanionAssociationResult.UserActionRequired ->
+                events.tryEmit(Event.LaunchCompanionAssociation(result.intentSender))
+            BluetoothManager2.CompanionAssociationResult.Created -> Unit
+            is BluetoothManager2.CompanionAssociationResult.Failed ->
+                events.tryEmit(Event.CompanionAssociationFailed(result.reason))
+        }
     }
 
     fun setAutoConnectCondition(condition: AutoConnectCondition) = launch {

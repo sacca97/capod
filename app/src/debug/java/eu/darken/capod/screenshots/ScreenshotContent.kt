@@ -175,7 +175,6 @@ internal fun DeviceSettingsReactionsContent() = PreviewWrapper {
             device = MockPodDataProvider.dualPodMonitoredWithReactions(),
             now = MOCK_NOW,
             isPro = true,
-            isNudgeAvailable = true,
             isClassicallyConnected = true,
         ),
         onNavigateUp = {},

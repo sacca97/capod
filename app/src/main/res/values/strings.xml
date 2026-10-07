@@ -46,7 +46,8 @@
     <string name="settings_start_music_on_wear_description">Always tries to play music when you put your pods on, even after a manual pause.</string>
     <string name="settings_eardetection_info_description">If ear detection only works for one pod, this is an Apple limitation. Only the \"primary pod\" (used for microphone) is detected. Configure on Apple devices: Settings → Bluetooth → AirPods → Microphone.</string>
     <string name="settings_autoconnect_label">Auto connect</string>
-    <string name="settings_autoconnect_description">If Android does not automatically connect, we can ask it too. This keeps CAPod monitoring in the background at all times.</string>
+    <string name="settings_autoconnect_description">Reconnect when your pods wake or are worn. Mode changes apply while they are connected. Android 17 and newer asks for a one-time approval; older versions use a system method that some phones block.</string>
+    <string name="settings_autoconnect_association_failed">Could not allow auto connect. Open the case next to your phone and try again. %s</string>
     <string name="settings_autoconnect_info_android12">Auto connect relies on a system feature that Android 12 and newer restricts. It may not work on your device.</string>
     <string name="settings_autoconnect_condition_label">Auto connect condition</string>
     <string name="settings_devices_label">Devices</string>
@@ -572,6 +573,10 @@
     <string name="device_settings_rename_system_unavailable">Android didn\'t let us rename the device here. To update the name in Bluetooth settings, rename it there or re-pair the device.</string>
     <string name="device_settings_rename_system_unavailable_bt_settings_action">Bluetooth Settings</string>
     <string name="device_settings_send_failed">Could not apply setting: %1$s</string>
+    <string name="device_settings_connect_rejected">Android did not accept the audio connection request.</string>
+    <string name="device_settings_connection_automatic">Auto</string>
+    <string name="device_settings_connection_last">Last connected</string>
+    <string name="device_settings_connection_off">Off</string>
     <string name="device_settings_anc_off_rejected_message">Off mode isn\'t enabled on this device. Enable \"Allow Off mode\" under Noise Control.</string>
     <string name="anc_mode_not_confirmed_message">The AirPods didn\'t confirm the listening mode change.</string>
     <string name="device_settings_category_battery_label">Battery</string>

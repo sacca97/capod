@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,7 +41,9 @@ import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import eu.darken.capod.R
 import eu.darken.capod.common.SystemTimeSource
 import eu.darken.capod.common.compose.Preview2
@@ -98,6 +101,16 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
     val offRejectedMessage = stringResource(R.string.device_settings_anc_off_rejected_message)
     val ancNotConfirmedMessage = stringResource(R.string.anc_mode_not_confirmed_message)
 
+    val companionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        vm.onCompanionAssociationResult()
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            vm.requestInitialCompanionAssociations()
+        }
+    }
+
     // Collect workerAutolaunch passively to keep it active
     LaunchedEffect(Unit) {
         vm.workerAutolaunch.collect {}
@@ -106,6 +119,9 @@ fun OverviewScreenHost(vm: OverviewViewModel = hiltViewModel()) {
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
+                is OverviewViewModel.Event.LaunchCompanionAssociation -> {
+                    companionLauncher.launch(IntentSenderRequest.Builder(event.intentSender).build())
+                }
                 OverviewViewModel.Event.OffModeRejectedByDevice -> {
                     snackbarHostState.showSnackbar(offRejectedMessage)
                 }
