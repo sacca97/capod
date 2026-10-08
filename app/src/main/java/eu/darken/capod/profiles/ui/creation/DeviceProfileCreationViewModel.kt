@@ -244,6 +244,7 @@ class DeviceProfileCreationViewModel @Inject constructor(
                         identityKey = editorState.identityKeyHex?.fromHex(),
                         encryptionKey = editorState.encryptionKeyHex?.fromHex(),
                         address = editorState.selectedDeviceAddress,
+                        onePodMode = true,
                     )
                     deviceProfilesRepo.addProfile(profile)
                     log(TAG, INFO) { "Profile created: $profile" }

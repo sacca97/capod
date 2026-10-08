@@ -6,12 +6,14 @@ import eu.darken.capod.common.bluetooth.BluetoothManager2
 import eu.darken.capod.common.bluetooth.NudgeAvailability
 import eu.darken.capod.common.bluetooth.NudgeCapabilityStore
 import eu.darken.capod.common.bluetooth.NudgeAttemptResult
+import eu.darken.capod.monitor.core.DeviceMonitor
 import eu.darken.capod.pods.core.apple.aap.AapConnectionManager
 import eu.darken.capod.pods.core.apple.aap.AapPodState
 import eu.darken.capod.pods.core.apple.aap.protocol.AapSetting
 import eu.darken.capod.profiles.core.AppleDeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfile
 import eu.darken.capod.profiles.core.DeviceProfilesRepo
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -43,12 +45,13 @@ class AutoConnectLogicTest : BaseTest() {
                 every { bondedDevices() } returns flowOf(setOf(BluetoothDevice2(address, "Pods", java.time.Instant.EPOCH, device)))
             }
             coEvery { bluetooth.connectAudio(device) } returns NudgeAttemptResult.Accepted
+            val deviceMonitor = mockk<DeviceMonitor> { every { devices } returns flowOf(emptyList()) }
             val aap = mockk<AapConnectionManager> { every { allStates } returns states }
             val repo = mockk<DeviceProfilesRepo> { every { this@mockk.profiles } returns profiles }
             val capabilities = mockk<NudgeCapabilityStore>(relaxed = true) {
                 every { availability } returns MutableStateFlow(NudgeAvailability.AVAILABLE)
             }
-            backgroundScope.launch { AutoConnect(bluetooth, aap, repo, capabilities).monitor().collect {} }
+            backgroundScope.launch { AutoConnect(bluetooth, aap, repo, capabilities, deviceMonitor).monitor().collect {} }
             runCurrent()
             states.value = mapOf(address to AapPodState(connectionState = AapPodState.ConnectionState.READY))
             runCurrent()
@@ -67,5 +70,16 @@ class AutoConnectLogicTest : BaseTest() {
         } finally {
             unmockkObject(BuildWrap.VersionWrap)
         }
+    }
+
+    @Test
+    fun `BLE in-ear decision debounces and rate limits`() {
+        val skip = { r: String -> AutoConnect.InEarBleDecision.Decision.Skip(r) }
+        val connect = AutoConnect.InEarBleDecision.Decision.Connect
+        AutoConnect.InEarBleDecision.decide(false, 5, null) shouldBe skip("not qualifying")
+        AutoConnect.InEarBleDecision.decide(true, 1, null) shouldBe skip("debouncing")
+        AutoConnect.InEarBleDecision.decide(true, 2, null) shouldBe connect
+        AutoConnect.InEarBleDecision.decide(true, 3, 19_999L) shouldBe skip("rate limited")
+        AutoConnect.InEarBleDecision.decide(true, 3, 20_000L) shouldBe connect
     }
 }
