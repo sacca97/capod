@@ -101,15 +101,26 @@ class DefaultAapDeviceProfile(
                 buildSettingsMessage(AapControlId.ALLOW_AUTO_CONNECT_FROM_AUDIO_ACCESSORY.value, ACCESSORY_AUTO_CONNECT_OFF),
             )
         }
-        val automatic = command.mode == AapSetting.ConnectionPreference.Mode.AUTOMATIC
-        // Allow accessory-initiated links so Android can request audio on ACL_CONNECTED.
-        val packets = listOf(
+        if (command.mode == AapSetting.ConnectionPreference.Mode.AUTOMATIC) {
+            // Same sequence macOS writes for "Connect to this Mac: Automatically", captured from a real Mac:
+            // 0x36=02, 0x20=01, connected-devices query, routing context 08, query again, routing context 06 twice.
+            // Note the 0x36 value differs from Last connected; the Mac uses 02 here.
+            return listOf(
+                buildSettingsMessage(AapControlId.ALLOW_AUTO_CONNECT_FROM_AUDIO_ACCESSORY.value, ACCESSORY_AUTO_CONNECT_OFF),
+                buildSettingsMessage(AapControlId.SMART_ROUTING_MODE.value, 1),
+                CONNECTED_DEVICES_QUERY,
+                routingContext(ROUTING_CONTEXT_LAST_CONNECTED),
+                CONNECTED_DEVICES_QUERY,
+                routingContext(ROUTING_CONTEXT_AUTOMATIC),
+                routingContext(ROUTING_CONTEXT_AUTOMATIC),
+            )
+        }
+        // Last connected: allow accessory-initiated links, as the Mac does.
+        return listOf(
             buildSettingsMessage(AapControlId.ALLOW_AUTO_CONNECT_FROM_AUDIO_ACCESSORY.value, ACCESSORY_AUTO_CONNECT_ALLOWED),
-            buildSettingsMessage(AapControlId.SMART_ROUTING_MODE.value, if (automatic) 1 else 2),
-            routingContext(if (automatic) ROUTING_CONTEXT_AUTOMATIC else ROUTING_CONTEXT_LAST_CONNECTED),
+            buildSettingsMessage(AapControlId.SMART_ROUTING_MODE.value, 2),
+            routingContext(ROUTING_CONTEXT_LAST_CONNECTED),
         )
-        // Query the current connected-device list; no host address is sent.
-        return if (automatic) packets + CONNECTED_DEVICES_QUERY else packets
     }
 
     override fun encodeCommand(command: AapCommand): ByteArray = when (command) {

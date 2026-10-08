@@ -14,14 +14,17 @@ class ConnectionPreferenceTest : BaseTest() {
     private fun hex(bytes: ByteArray) = bytes.joinToString(" ") { "%02x".format(it) }
 
     @Test
-    fun `Automatic allows accessory links while preserving captured smart routing commands`() {
+    fun `Automatic sends the sequence a Mac writes for Automatically`() {
         DefaultAapDeviceProfile(PodModel.AIRPODS_GEN2)
             .encodeCommands(AapCommand.SetConnectionPreference(AapSetting.ConnectionPreference.Mode.AUTOMATIC))
             .map(::hex) shouldBe listOf(
-            "04 00 04 00 09 00 36 01 00 00 00",
+            "04 00 04 00 09 00 36 02 00 00 00",
             "04 00 04 00 09 00 20 01 00 00 00",
-            "04 00 04 00 44 00 04 00 02 00 03 06",
             "04 00 04 00 2d 00",
+            "04 00 04 00 44 00 04 00 02 00 03 08",
+            "04 00 04 00 2d 00",
+            "04 00 04 00 44 00 04 00 02 00 03 06",
+            "04 00 04 00 44 00 04 00 02 00 03 06",
         )
     }
 
