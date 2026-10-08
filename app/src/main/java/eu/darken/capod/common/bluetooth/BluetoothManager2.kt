@@ -456,9 +456,11 @@ class BluetoothManager2 @Inject constructor(
     }
 
     suspend fun connectAudio(device: BluetoothDevice): NudgeAttemptResult {
-        if (!hasApiLevel(37)) return nudgeConnection(
-            BluetoothDevice2(device.address, device.name, timeSource.now(), device),
-        )
+        if (!hasApiLevel(37)) {
+            val nudge = nudgeConnection(BluetoothDevice2(device.address, device.name, timeSource.now(), device))
+            if (nudge == NudgeAttemptResult.Accepted) return nudge
+            return requestAudioViaSdpLookup(device) ?: nudge
+        }
         // Reflection only because compileSdk is 36; the method is public API from 37.
         val status = try {
             BluetoothDevice::class.java.getMethod("connect").invoke(device) as Int
@@ -471,6 +473,35 @@ class BluetoothManager2 @Inject constructor(
             BluetoothStatusCodes.SUCCESS -> NudgeAttemptResult.Accepted
             BluetoothStatusCodes.ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION -> NudgeAttemptResult.UnavailableMissingPermission
             else -> NudgeAttemptResult.Rejected
+        }
+    }
+
+    /**
+     * Before Android 17 no public call connects the audio profiles, and the hidden one is blocked. An SDP
+     * lookup pages the device, and in device tests Android's own audio policy then connected A2DP a few
+     * seconds later. Waits briefly first, because the pods often bring up the audio themselves.
+     *
+     * @return null when the lookup could not be started
+     */
+    @android.annotation.SuppressLint("MissingPermission")
+    private suspend fun requestAudioViaSdpLookup(device: BluetoothDevice): NudgeAttemptResult? {
+        delay(SDP_FALLBACK_DELAY_MS)
+        val alreadyConnected = try {
+            connectedDevices.first().any { it.address.equals(device.address, ignoreCase = true) }
+        } catch (e: Exception) {
+            false
+        }
+        if (alreadyConnected) {
+            log(TAG) { "Audio is already connected to $device, skipping the SDP lookup" }
+            return NudgeAttemptResult.Accepted
+        }
+        return try {
+            val started = device.fetchUuidsWithSdp()
+            log(TAG, INFO) { "fetchUuidsWithSdp() returned $started for $device" }
+            if (started) NudgeAttemptResult.Accepted else null
+        } catch (e: SecurityException) {
+            log(TAG, WARN) { "fetchUuidsWithSdp() denied: ${e.message}" }
+            NudgeAttemptResult.UnavailableMissingPermission
         }
     }
 
@@ -571,6 +602,7 @@ class BluetoothManager2 @Inject constructor(
     }
 
     companion object {
+        private const val SDP_FALLBACK_DELAY_MS = 2_000L
         private val TAG = logTag("Bluetooth", "Manager2")
     }
 }

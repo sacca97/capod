@@ -1,7 +1,6 @@
 package eu.darken.capod.reaction.core.autoconnect
 
 import eu.darken.capod.common.bluetooth.BluetoothManager2
-import eu.darken.capod.common.bluetooth.NudgeAvailability
 import eu.darken.capod.common.bluetooth.NudgeCapabilityStore
 import eu.darken.capod.common.debug.logging.Logging.Priority.VERBOSE
 import eu.darken.capod.common.debug.logging.log
@@ -132,9 +131,6 @@ class AutoConnect @Inject constructor(
                 log(TAG, VERBOSE) { "Not connecting $address, no companion association" }
                 return
             }
-        } else if (nudgeCapabilityStore.availability.value == NudgeAvailability.BROKEN) {
-            log(TAG, VERBOSE) { "Not connecting $address, the system connect method is known to be blocked" }
-            return
         }
         val device = bluetoothManager.bondedDevices().first().firstOrNull { it.address == address }?.internal
         if (device == null) {
