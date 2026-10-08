@@ -29,7 +29,8 @@ import javax.inject.Singleton
 /**
  * Requests audio for pods that are worn while they are not audio-connected, for profiles set to
  * [AutoConnectCondition.IN_EAR]. Two triggers feed it:
- * - AAP: a live, READY session reports both pods (or either, in one-pod mode) in the ear.
+ * - AAP: a live, READY session reports either pod in the ear. This is a connection trigger, so it
+ *   does not depend on the one-pod setting, which only belongs to the play/pause reactions.
  * - BLE: no AAP session exists yet (it needs the classic link), so an IRK-authenticated advert that
  *   reliably says "worn" is used instead, debounced and rate-limited, see [InEarBleDecision].
  *
@@ -82,21 +83,25 @@ class AutoConnect @Inject constructor(
     /**
      * BLE ear bits are unreliable for pods resting in the case (phantom "in ear"), so the advert is
      * only trusted when it is IRK-authenticated and no case bit is set at all: status bit 6 (the
-     * broadcasting pod is in the case), bit 4 (one pod in case) and bit 2 (both pods in case).
-     * This also means a one-pod-in-ear / other-in-case state never triggers, on purpose.
+     * broadcasting pod is in the case) and bit 2 (both pods in case) must be clear. Bit 4 (one pod in
+     * case) is allowed so that one pod worn while the other stays in the case still triggers.
      */
     private fun PodDevice.qualifiesForBleInEar(profile: AppleDeviceProfile, address: String): Boolean {
         val reactions = profile.reactionConfig
         if (!reactions.autoConnect || reactions.autoConnectCondition != AutoConnectCondition.IN_EAR) return false
-        if (isSystemConnected || hasAapEarDetection) return false
-        val apple = ble as? ApplePods ?: return false
-        if (!apple.meta.isIRKMatch) return false
-        val dual = apple as? DualApplePods ?: return false
-        if (dual.isThisPodInThecase || dual.isOnePodInCase || dual.areBothPodsInCase) return false
-        return when {
-            reactions.onePodMode -> dual.isEitherPodInEar
-            else -> dual.isLeftPodInEar && dual.isRightPodInEar
+        val apple = ble as? ApplePods
+        val dual = apple as? DualApplePods
+        log(TAG, VERBOSE) {
+            "BLE in-ear check ${profile.label}: systemConnected=$isSystemConnected aapEar=$hasAapEarDetection " +
+                "irk=${apple?.meta?.isIRKMatch} dual=${dual != null} " +
+                "caseBits(this=${dual?.isThisPodInThecase}, one=${dual?.isOnePodInCase}, both=${dual?.areBothPodsInCase}) " +
+                "inEar(L=${dual?.isLeftPodInEar}, R=${dual?.isRightPodInEar})"
         }
+        if (isSystemConnected || hasAapEarDetection) return false
+        if (apple == null || !apple.meta.isIRKMatch) return false
+        if (dual == null) return false
+        if (dual.isThisPodInThecase || dual.areBothPodsInCase) return false
+        return dual.isEitherPodInEar
     }
 
     private fun monitorAap(): Flow<Unit> = combine(
@@ -118,11 +123,7 @@ class AutoConnect @Inject constructor(
         if (!reactions.autoConnect || reactions.autoConnectCondition != AutoConnectCondition.IN_EAR) return false
         if (state?.connectionState != AapPodState.ConnectionState.READY) return false
         val ear = state.aapEarDetection ?: return false
-        return when {
-            reactions.onePodMode -> ear.isEitherPodInEar
-            else -> ear.primaryPod == AapSetting.EarDetection.PodPlacement.IN_EAR &&
-                ear.secondaryPod == AapSetting.EarDetection.PodPlacement.IN_EAR
-        }
+        return ear.isEitherPodInEar
     }
 
     private suspend fun connectAudio(address: String) {
